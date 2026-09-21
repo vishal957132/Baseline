@@ -231,6 +231,23 @@ export async function removeMeasurement(args: {
   });
 }
 
+/**
+ * Wipe every local table, in one transaction.
+ *
+ * Signing out has to remove the data, not just the session: the next person to
+ * sign in on this device must not see the previous one's readings. The design
+ * says as much — signing out discards unsent changes — which is also why the
+ * button is disabled while the outbox is non-empty.
+ */
+export async function clearLocalData(): Promise<void> {
+  await getDb().transaction(async tx => {
+    // Children first, so nothing is briefly orphaned mid-transaction.
+    for (const table of ['outbox', 'conflicts', 'measurement_events', 'measurements']) {
+      await tx.execute(`DELETE FROM ${table}`);
+    }
+  });
+}
+
 // ── shared write helpers ─────────────────────────────────────────────────────
 
 interface Tx {
