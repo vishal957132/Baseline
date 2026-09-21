@@ -1,57 +1,84 @@
 /**
- * Sample React Native App
- * https://github.com/facebook/react-native
+ * App shell: store, safe areas, navigation.
  *
- * @format
+ * The database opens and seeds before the tree mounts, so the first frame has
+ * data to paint rather than a spinner.
  */
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { useEffect } from 'react';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StatusBar, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Provider } from 'react-redux';
 import BootSplash from 'react-native-bootsplash';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
 
-/** How long the boot splash stays on screen before fading out. */
-const SPLASH_DURATION_MS = 2000;
+import { Navigation } from './src/app/navigation';
+import { store } from './src/app/store';
+import { sessionRestored } from './src/app/store/authSlice';
+import { openDatabase } from './src/data/db';
+import { getSession } from './src/data/prefs';
+import { deviceTzOffsetMs } from './src/domain/time';
+import { seedDatabase, seedSyncFixtures } from './src/test/seed';
+import { color, Text } from './src/ui';
 
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      BootSplash.hide({ fade: true });
-    }, SPLASH_DURATION_MS);
+    (async () => {
+      try {
+        // The cached session is read first: a returning user never sees the
+        // sign-in form, because the local database does not need the network.
+        const session = getSession();
+        store.dispatch(
+          sessionRestored(
+            session
+              ? {
+                  email: session.email,
+                  name: session.name,
+                  onboarded: session.onboarded,
+                }
+              : null,
+          ),
+        );
 
-    return () => clearTimeout(timeout);
+        const db = await openDatabase();
+        if (__DEV__) {
+          const now = Date.now();
+          await seedDatabase(db, now, deviceTzOffsetMs());
+          await seedSyncFixtures(db, now, deviceTzOffsetMs());
+        }
+      } catch (e) {
+        store.dispatch(sessionRestored(null));
+        setError(String((e as Error)?.message ?? e));
+      } finally {
+        await BootSplash.hide({ fade: true });
+      }
+    })();
   }, []);
 
-  return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
-    </SafeAreaProvider>
-  );
-}
-
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
+  if (error) {
+    return (
+      <View style={styles.error}>
+        <Text variant="title">Could not open the database</Text>
+        <Text variant="body" color="textMuted">{error}</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
+    <Provider store={store}>
+      <SafeAreaProvider>
+        <StatusBar barStyle="dark-content" />
+        <Navigation />
+      </SafeAreaProvider>
+    </Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  error: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    gap: 8, padding: 24, backgroundColor: color.paper,
   },
 });
 

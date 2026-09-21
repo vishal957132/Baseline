@@ -1,6 +1,7 @@
 import {
   availableRanges,
   deviceTzOffsetMs,
+  formatDayShort,
   laneKey,
   localDayIndex,
   localDayKey,
@@ -125,6 +126,18 @@ describe('availableRanges', () => {
 
   it('offers every range once the span is wide', () => {
     expect(availableRanges(90)).toEqual(['7d', '30d', '3mo']);
+  });
+});
+
+describe('formatDayShort', () => {
+  it('formats a day index the way the x axis shows it', () => {
+    const day = Math.floor(Date.UTC(2026, 8, 15) / MS_PER_DAY);
+    expect(formatDayShort(day)).toBe('15 Sep');
+  });
+
+  it('handles the turn of a month', () => {
+    const day = Math.floor(Date.UTC(2026, 0, 1) / MS_PER_DAY);
+    expect(formatDayShort(day)).toBe('1 Jan');
   });
 });
 
