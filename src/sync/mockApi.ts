@@ -45,7 +45,16 @@ export interface Op {
   id: string;
   laneKey: string;
   kind: 'create' | 'update' | 'delete';
-  value?: number;
+  /** JSON. The API owns this format; the sync engine passes it through blind. */
+  payload: string;
+}
+
+function valueOf(payload: string): number {
+  try {
+    return (JSON.parse(payload) as { value?: number }).value ?? 0;
+  } catch {
+    return 0; // a corrupt row must not crash the drain loop
+  }
 }
 
 export interface ServerRow {
@@ -123,7 +132,7 @@ export class MockApi {
     } else {
       this.rows.set(op.laneKey, {
         laneKey: op.laneKey,
-        value: op.value ?? 0,
+        value: valueOf(op.payload),
         source: 'manual',
         serverSeq: this.seq,
       });
