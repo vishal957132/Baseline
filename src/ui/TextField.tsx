@@ -32,6 +32,8 @@ export function TextField({
           keyboardType={keyboardType}
           secureTextEntry={secure}
           autoFocus={autoFocus}
+          editable
+          returnKeyType="done"
           style={styles.input}
         />
         {unit && <Text variant="body" color="textMuted">{unit}</Text>}

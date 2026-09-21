@@ -19,6 +19,7 @@ import InfoCircle from '../../assets/icons/info-circle.svg';
 import Pencil from '../../assets/icons/pencil.svg';
 import Plus from '../../assets/icons/plus.svg';
 import Settings from '../../assets/icons/settings.svg';
+import ShieldCheck from '../../assets/icons/shield-check.svg';
 import Sleep from '../../assets/icons/sleep.svg';
 import Steps from '../../assets/icons/steps.svg';
 import Sync from '../../assets/icons/sync.svg';
@@ -44,6 +45,7 @@ export const ICONS = {
   pencil: Pencil,
   plus: Plus,
   settings: Settings,
+  'shield-check': ShieldCheck,
   sleep: Sleep,
   steps: Steps,
   sync: Sync,
