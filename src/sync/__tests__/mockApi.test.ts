@@ -1,7 +1,7 @@
 import { MockApi, type ApiError } from '../mockApi';
 
 const op = (id: string, value = 72.6, laneKey = 'weight:2026-09-21') =>
-  ({ id, laneKey, kind: 'create' as const, value });
+  ({ id, laneKey, kind: 'create' as const, payload: JSON.stringify({ value }) });
 
 /** Narrow the union so tests can read `serverSeq` without casting. */
 async function accepted(api: MockApi, ...args: Parameters<MockApi['push']>) {
