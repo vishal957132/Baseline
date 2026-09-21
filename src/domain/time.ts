@@ -43,6 +43,15 @@ export function dayIndexToKey(dayIndex: number): string {
   return new Date(dayIndex * MS_PER_DAY).toISOString().slice(0, 10);
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `15 Sep` — the x-axis label format from the design. */
+export function formatDayShort(dayIndex: number): string {
+  const at = new Date(dayIndex * MS_PER_DAY);
+  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
+}
+
 /** Epoch ms of local midnight for the day containing `recordedAt`. */
 export function startOfLocalDayMs(recordedAt: number, tzOffsetMs: number) {
   return localDayIndex(recordedAt, tzOffsetMs) * MS_PER_DAY - tzOffsetMs;
