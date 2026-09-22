@@ -5,11 +5,26 @@
  * `aggregate` is the field that matters: same-day readings combine differently
  * per metric. Three water logs of 250/300/250 are 800 ml for the day, not 267,
  * so a hardcoded AVG would render a plausible wrong number.
+ *
+ * Weight is 'latest', not 'avg', and the difference is user-visible: weighing
+ * twice in a day and averaging reports a number that was never on the scale.
+ * Type 77.5 against a morning reading of 66.1 and an averaging card shows
+ * 71.8 — which reads as "my entry was ignored" rather than as an average.
+ * A point-in-time measurement's value for a day is its most recent reading.
  */
 
 import type { MetricId } from './types';
 
-export type Aggregation = 'sum' | 'avg';
+/**
+ * How a day's readings collapse to one number.
+ *
+ * 'sum'    cumulative — water, sleep, steps, energy: the day's total.
+ * 'latest' point-in-time — weight: the most recent reading of that day.
+ * 'avg'    kept for metrics where a mean is the honest summary. Nothing uses
+ *          it today; it stays because removing it would make `bucketSql`'s
+ *          aggregate parameter a two-valued flag pretending to be a type.
+ */
+export type Aggregation = 'sum' | 'avg' | 'latest';
 
 export interface MetricDescriptor {
   label: string;
@@ -23,7 +38,7 @@ export interface MetricDescriptor {
 }
 
 export const METRICS: Record<MetricId, MetricDescriptor> = {
-  weight: { label: 'Weight', unit: 'kg',    aggregate: 'avg', direction: 'down', editable: true,  precision: 1 },
+  weight: { label: 'Weight', unit: 'kg',    aggregate: 'latest', direction: 'down', editable: true,  precision: 1 },
   water:  { label: 'Water',  unit: 'ml',    aggregate: 'sum', direction: 'up',   editable: true,  precision: 0 },
   sleep:  { label: 'Sleep',  unit: 'min',   aggregate: 'sum', direction: 'up',   editable: true,  precision: 0 },
   steps:  { label: 'Steps',  unit: 'count', aggregate: 'sum', direction: 'up',   editable: false, precision: 0 },

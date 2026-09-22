@@ -15,7 +15,7 @@ describe('the registry', () => {
   it('gives every metric a unit and an aggregation', () => {
     for (const d of Object.values(METRICS)) {
       expect(d.unit).toBeTruthy();
-      expect(['sum', 'avg']).toContain(d.aggregate);
+      expect(['sum', 'avg', 'latest']).toContain(d.aggregate);
       expect(['up', 'down']).toContain(d.direction);
     }
   });
@@ -54,8 +54,13 @@ describe('aggregation', () => {
     }
   });
 
-  it('averages weight, which does not accumulate over a day', () => {
-    expect(METRICS.weight.aggregate).toBe('avg');
+  /**
+   * Weight is point-in-time, not cumulative and not a mean. Two weigh-ins in a
+   * day are two readings, and the day's number is the later one — averaging
+   * reports a figure that was never on the scale.
+   */
+  it('takes the latest reading for weight rather than averaging', () => {
+    expect(METRICS.weight.aggregate).toBe('latest');
   });
 });
 

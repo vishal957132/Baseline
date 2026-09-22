@@ -71,9 +71,10 @@ describe('a lane that gave up', () => {
     ],
   };
 
-  it('names the lane and the attempt count', async () => {
+  it('names what failed and how many tries it took', async () => {
     await mount(state);
-    expect(screen.getByText(/Weight · 21 Sep stopped after 6 attempts/)).toBeTruthy();
+    expect(screen.getByText(/Couldn’t upload Weight · 21 Sep/)).toBeTruthy();
+    expect(screen.getByText(/Gave up after 6 tries/)).toBeTruthy();
   });
 
   /** "Nothing was lost" is the point — the user needs to know the data is safe. */
@@ -85,23 +86,23 @@ describe('a lane that gave up', () => {
   it('offers a retry that reaches the engine', async () => {
     const onRetryAll = jest.fn();
     await mount(state, { onRetryAll });
-    await fireEvent.press(screen.getByText('Retry all'));
+    await fireEvent.press(screen.getByText('Try again'));
     expect(onRetryAll).toHaveBeenCalled();
   });
 
-  it('lists every lane, so a good one is visibly unaffected', async () => {
+  it('lists every group, so a good one is visibly unaffected', async () => {
     await mount(state);
-    expect(screen.getByText('LANES')).toBeTruthy();
-    // The dead lane says what is held; the healthy one still reads as sending.
-    expect(screen.getByText('2 held · failed')).toBeTruthy();
+    expect(screen.getByText('WHAT IS WAITING')).toBeTruthy();
+    // The failed group says what is held; the healthy one still reads as sending.
+    expect(screen.getByText('2 not sent')).toBeTruthy();
     expect(screen.getAllByText('Sending').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Water · 21 Sep').length).toBeGreaterThan(0);
   });
 
   it('shows no failure banner when every lane is healthy', async () => {
     await mount({ lanes: [lane()] });
-    expect(screen.queryByText('LANES')).toBeNull();
-    expect(screen.queryByText(/stopped after/)).toBeNull();
+    expect(screen.queryByText('WHAT IS WAITING')).toBeNull();
+    expect(screen.queryByText(/Gave up after/)).toBeNull();
   });
 });
 
@@ -125,7 +126,7 @@ describe('a lane needing a decision', () => {
     await mount({ lanes: [] });
 
     expect(await screen.findByText('NEEDS YOUR ATTENTION')).toBeTruthy();
-    expect(screen.getByText(/Weight · 21 Sep has two versions/)).toBeTruthy();
+    expect(screen.getByText(/Weight · 21 Sep has two different values/)).toBeTruthy();
     expect(screen.getByText('Review')).toBeTruthy();
   });
 

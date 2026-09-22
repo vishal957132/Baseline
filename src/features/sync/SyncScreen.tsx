@@ -67,20 +67,20 @@ export function SyncScreen({
             <Banner
               tone="danger"
               icon="alert-triangle"
-              title={`${dead.map(l => laneLabel(l.laneKey)).join(', ')} stopped after ${MAX_ATTEMPTS} attempts`}
-              subtitle={`Nothing was lost — ${dead.reduce((n, l) => n + l.queued, 0)} change${dead.reduce((n, l) => n + l.queued, 0) === 1 ? '' : 's'} are still on this device and go out when you retry.`}
-              actionLabel="Retry all"
+              title={`Couldn’t upload ${dead.map(l => laneLabel(l.laneKey)).join(', ')}`}
+              subtitle={`Gave up after ${MAX_ATTEMPTS} tries. Nothing was lost — ${dead.reduce((n, l) => n + l.queued, 0)} change${dead.reduce((n, l) => n + l.queued, 0) === 1 ? '' : 's'} are still on this device and upload when you try again.`}
+              actionLabel="Try again"
               onAction={onRetryAll}
             />
 
             {/* One bad lane fails alone; everything else finished. */}
-            <Text variant="caption" color="textMuted">LANES</Text>
+            <Text variant="caption" color="textMuted">WHAT IS WAITING</Text>
             <Card style={styles.laneCard}>
               {sync.lanes.map(lane => (
                 <ListRow
                   key={`summary-${lane.laneKey}`}
                   title={laneLabel(lane.laneKey)}
-                  subtitle={`${lane.queued} queued`}
+                  subtitle={`${lane.queued} change${lane.queued === 1 ? '' : 's'}`}
                   danger={lane.status === 'dead'}
                   right={
                     <Text
@@ -88,7 +88,7 @@ export function SyncScreen({
                       color={lane.status === 'dead' ? 'danger' : 'textMuted'}
                     >
                       {lane.status === 'dead'
-                        ? `${lane.queued} held · failed`
+                        ? `${lane.queued} not sent`
                         : LANE_WORDS[lane.status]}
                     </Text>
                   }
@@ -106,12 +106,9 @@ export function SyncScreen({
           />
         ) : (
           <>
-            <View style={styles.head}>
-              <Text variant="caption" color="textMuted">
-                {`QUEUED · ${queued} IN ${sync.lanes.length} LANE${sync.lanes.length === 1 ? '' : 'S'}`}
-              </Text>
-              <Text variant="caption" color="textMuted">Lanes run in parallel</Text>
-            </View>
+            <Text variant="caption" color="textMuted">
+              {`${queued} CHANGE${queued === 1 ? '' : 'S'} WAITING TO UPLOAD`}
+            </Text>
 
             {sync.lanes.map(lane => (
               <View key={lane.laneKey} style={styles.lane}>
@@ -126,11 +123,8 @@ export function SyncScreen({
 
                 <Card style={styles.laneCard}>
                   <SyncQueueItem
-                    index={1}
-                    kind="create"
                     label={laneLabel(lane.laneKey)}
-                    opId={lane.laneKey.slice(-6)}
-                    localSeq={lane.attempts + 12}
+                    count={lane.queued}
                     status={
                       lane.status === 'dead' ? 'dead'
                       : lane.status === 'retrying' ? 'retrying'
@@ -140,29 +134,19 @@ export function SyncScreen({
                     attempts={lane.attempts}
                     retryInSeconds={secondsUntil(lane.nextAttemptAt)}
                   />
-                  {lane.queued > 1 && (
-                    <SyncQueueItem
-                      index={2}
-                      kind="update"
-                      label={`${lane.queued - 1} more`}
-                      opId="queued"
-                      localSeq={lane.attempts + 13}
-                      status="queued"
-                      heldBehind={1}
-                    />
-                  )}
                 </Card>
 
                 {lane.status === 'dead' && (
-                  <Button label="Retry this lane" variant="danger"
+                  <Button label="Try these again" variant="danger"
                     onPress={() => onRetryLane(lane.laneKey)} />
                 )}
               </View>
             ))}
 
             <Text variant="caption" color="textMuted">
-              Order holds inside a lane, never across them. Sent ops keep the
-              server’s sequence; anything still queued sorts after, by local number.
+              Changes are grouped by measurement and day, and each group uploads
+              on its own. One group being stuck never holds up the others, and
+              within a group your edits arrive in the order you made them.
             </Text>
           </>
         )}
@@ -175,8 +159,8 @@ export function SyncScreen({
                 key={c.laneKey}
                 tone="danger"
                 icon="alert-triangle"
-                title={`${laneLabel(c.laneKey)} has two versions`}
-                subtitle="Same lane, now needing a decision"
+                title={`${laneLabel(c.laneKey)} has two different values`}
+                subtitle="Pick the one you want to keep. The other stays in your history."
                 actionLabel="Review"
                 onAction={() => nav.navigate('Conflict', { laneKey: c.laneKey })}
               />
@@ -184,15 +168,16 @@ export function SyncScreen({
           </>
         )}
 
-        {queued > 0 && <Button label="Try all lanes now" onPress={onRetryAll} />}
+        {queued > 0 && <Button label="Try uploading now" onPress={onRetryAll} />}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+/** Status in the user's words. The engine's names stay in the engine. */
 const LANE_WORDS = {
-  queued: 'Queued', sending: 'Sending', retrying: 'Retrying',
-  dead: 'Failed', conflict: 'Needs you',
+  queued: 'Waiting', sending: 'Sending', retrying: 'Trying again',
+  dead: 'Not sent', conflict: 'Needs you',
 };
 
 /** `weight:2026-09-21` → `Weight · 21 Sep`. */

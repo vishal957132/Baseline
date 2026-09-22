@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,10 +10,20 @@ import { simulateSignInElsewhere } from '../../app/syncService';
 import { storageStats } from '../../data/measurementRepo';
 import { useQuery } from '../../data/useQuery';
 import { signOut } from '../auth/signOut';
-import { getConnectedSources, setConnectedSources } from '../../data/prefs';
-import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
+import { selectUnits, unitChanged } from '../../app/store/unitsSlice';
 import {
-  Banner, Button, Card, Chip, color, ListRow, ScreenHeader, space, Text,
+  getConnectedSources, getGoals, setConnectedSources, setUnitPrefs,
+} from '../../data/prefs';
+import { metric } from '../../domain/metrics';
+import type { MetricId } from '../../domain/types';
+import {
+  CONVERTIBLE_METRICS, formatWithUnit, UNIT_OPTIONS, unitFor, type UnitId,
+} from '../../domain/units';
+import {
+  connectedProviders, DEFAULT_CONNECTED, providersForPlatform,
+} from '../../providers/registry';
+import {
+  Banner, Button, Card, Chip, color, ListRow, radius, ScreenHeader, space, Text,
 } from '../../ui';
 
 interface Props {
@@ -49,6 +59,27 @@ export function SettingsScreen({ stats }: Props) {
   const [connected, setConnected] = useState(() =>
     getConnectedSources(DEFAULT_CONNECTED),
   );
+  const units = useSelector(selectUnits);
+
+  /**
+   * Both the store and MMKV: the store is what the screens re-render from, and
+   * MMKV is what survives a restart. Writing only one of them is how a setting
+   * appears to work and then forgets itself.
+   */
+  function chooseUnit(metricId: MetricId, unit: UnitId) {
+    setUnitPrefs({ ...units, [metricId]: unit });
+    dispatch(unitChanged({ metric: metricId, unit }));
+  }
+
+  /*
+   * What this device can actually read from, which is not the same as what is
+   * stored. The saved list is cross-platform — an Android phone still carries
+   * a preference for Apple Health — so counting it directly left the import
+   * button enabled after both visible toggles were switched off, and pressing
+   * it reported importing nothing. `importHealthData` already intersects with
+   * the platform; the button has to ask the same question.
+   */
+  const usable = connectedProviders(connected);
 
   function toggleSource(id: (typeof connected)[number]) {
     const next = connected.includes(id)
@@ -88,12 +119,17 @@ export function SettingsScreen({ stats }: Props) {
           ))}
         </Card>
         <Button
-          label={importing ? 'Importing…' : 'Import now'}
+          label={importing ? 'Checking your health apps…' : 'Get my latest readings'}
           variant="secondary"
           icon="upload-cloud"
-          disabled={importing || connected.length === 0}
+          disabled={importing || usable.length === 0}
           onPress={() => { runImport(); }}
         />
+        <Text variant="caption" color="textMuted">
+          {usable.length === 0
+            ? 'Switch on a health app above to bring readings in.'
+            : 'Looks at the health apps switched on above and brings in anything new from the last 30 days. Nothing is removed, nothing you typed is changed, and running it twice adds nothing twice.'}
+        </Text>
 
         {lastImport && lastImport.failed.length > 0 && (
           <Banner
@@ -137,8 +173,50 @@ export function SettingsScreen({ stats }: Props) {
                 : 'reading the database'
             }
           />
-          <ListRow title="Units" subtitle="Metric (kg, km)" />
-          <ListRow title="Goals" subtitle="70.0 kg · 10,000 steps" />
+        </Card>
+
+        <Text variant="caption" color="textMuted">UNITS</Text>
+        <Card style={styles.list}>
+          {CONVERTIBLE_METRICS.map(id => {
+            const chosen = unitFor(id, units);
+            return (
+              <ListRow
+                key={id}
+                title={metric(id).label}
+                subtitle={`Shown in ${chosen.name.toLowerCase()}`}
+                right={
+                  <View style={styles.units}>
+                    {UNIT_OPTIONS[id].map(option => (
+                      <Pressable
+                        key={option.id}
+                        onPress={() => chooseUnit(id, option.id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: option.id === chosen.id }}
+                        style={[styles.unit, option.id === chosen.id && styles.unitOn]}
+                      >
+                        <Text
+                          variant="label"
+                          color={option.id === chosen.id ? 'textInverse' : 'text'}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                }
+              />
+            );
+          })}
+        </Card>
+        <Text variant="caption" color="textMuted">
+          A display choice only. Every reading stays stored in one unit, so
+          switching here re-reads your whole history rather than rewriting any
+          of it.
+        </Text>
+
+        <Text variant="caption" color="textMuted">GOALS</Text>
+        <Card style={styles.list}>
+          <ListRow title="Targets" subtitle={describeGoals(units)} />
         </Card>
 
         {__DEV__ && (
@@ -176,6 +254,15 @@ export function SettingsScreen({ stats }: Props) {
   );
 }
 
+/** The saved goals, each in the unit the user reads it in. */
+function describeGoals(units: Parameters<typeof unitFor>[1]): string {
+  const goals = getGoals();
+  const parts = (Object.keys(goals) as MetricId[])
+    .filter(id => goals[id] !== undefined)
+    .map(id => formatWithUnit(id, goals[id] as number, units));
+  return parts.length > 0 ? parts.join(' · ') : 'None set';
+}
+
 function describeSince(since: number | null): string {
   if (since === null) return 'No readings yet';
   const at = new Date(since);
@@ -187,4 +274,12 @@ const styles = StyleSheet.create({
   body: { gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.xxl },
   list: { padding: 0, overflow: 'hidden' },
   disabled: { opacity: 0.5 },
+  units: { flexDirection: 'row', gap: space.xs },
+  unit: {
+    minWidth: 46, alignItems: 'center',
+    paddingHorizontal: space.sm, paddingVertical: space.xs,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: color.border,
+    backgroundColor: color.card,
+  },
+  unitOn: { backgroundColor: color.ink, borderColor: color.ink },
 });
