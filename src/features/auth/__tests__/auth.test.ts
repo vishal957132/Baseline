@@ -2,7 +2,7 @@ import authReducer, {
   onboardingFinished, sessionRestored, signedIn, signedOut,
 } from '../../../app/store/authSlice';
 import {
-  clearPrefs, clearSession, getConnectedSources, getGoals, getSession,
+  clearPrefs, getConnectedSources, getGoals, getSession,
   markOnboarded, setConnectedSources, setGoals, setSession,
 } from '../../../data/prefs';
 import { DEFAULT_CONNECTED } from '../../../providers/registry';
@@ -71,7 +71,7 @@ describe('credentials', () => {
 });
 
 describe('cached session', () => {
-  beforeEach(clearSession);
+  beforeEach(clearPrefs);
 
   it('is absent before signing in', () => {
     expect(getSession()).toBeNull();
@@ -91,7 +91,7 @@ describe('cached session', () => {
 
   it('is gone after signing out', () => {
     setSession({ email: 'a@b.c', name: 'A B', onboarded: true, signedInAt: 1 });
-    clearSession();
+    clearPrefs();
     expect(getSession()).toBeNull();
   });
 });

@@ -122,11 +122,6 @@ export function resumeSession(): void {
     .catch(() => undefined);
 }
 
-/** Cancel un-sent work for a record. Backs undo and cancel-vs-delete. */
-export async function cancelPending(lineageId: string): Promise<string[]> {
-  return (await engine?.cancel(lineageId)) ?? [];
-}
-
 export function stopSync(): void {
   unsubscribes.forEach(stop => stop());
   unsubscribes = [];

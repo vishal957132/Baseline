@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { RootStackParams } from '../../app/navigation';
 import { ALL_METRICS, metric } from '../../domain/metrics';
 import type { MetricId, SourceId } from '../../domain/types';
-import { getConnectedSources, setConnectedSources } from '../../data/prefs';
+import {
+  getConnectedSources, getImportedMetrics, setConnectedSources, setImportedMetrics,
+} from '../../data/prefs';
 import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
 import {
   Banner, Button, Card, Chip, color, Icon, ScreenHeader, space, Text,
@@ -29,7 +31,9 @@ export function ConnectScreen() {
   const [connected, setConnected] = useState<SourceId[]>(() =>
     getConnectedSources(DEFAULT_CONNECTED),
   );
-  const [metrics, setMetrics] = useState<MetricId[]>(ALL_METRICS);
+  const [metrics, setMetrics] = useState<MetricId[]>(() =>
+    getImportedMetrics(ALL_METRICS),
+  );
 
   /** Writes through immediately — there is no Save on this step. */
   function toggleSource(id: SourceId) {
@@ -40,8 +44,14 @@ export function ConnectScreen() {
     setConnectedSources(next);
   }
 
-  const toggleMetric = (id: MetricId) =>
-    setMetrics(m => (m.includes(id) ? m.filter(x => x !== id) : [...m, id]));
+  /** Writes through immediately — there is no Save on this step. */
+  function toggleMetric(id: MetricId) {
+    const next = metrics.includes(id)
+      ? metrics.filter(x => x !== id)
+      : [...metrics, id];
+    setMetrics(next);
+    setImportedMetrics(next);
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -89,6 +99,12 @@ export function ConnectScreen() {
         <Banner tone="warn" icon="info-circle"
           title="Demo build — all sources return seeded fixtures"
           subtitle="Not readings from your device. Imports still never overwrite what you typed yourself." />
+
+        {metrics.length === 0 && (
+          <Text variant="caption" color="danger">
+            Nothing selected — an import would bring in nothing.
+          </Text>
+        )}
 
         <Button label="Continue" onPress={() => nav.navigate('Goals')}
           disabled={connected.length === 0} />

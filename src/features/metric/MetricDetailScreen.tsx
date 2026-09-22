@@ -9,7 +9,9 @@ import { bucketByDay, listRange } from '../../data/measurementRepo';
 import { getGoals } from '../../data/prefs';
 import { useQuery } from '../../data/useQuery';
 import { summarise } from '../../domain/chart';
-import { formatValue, metric } from '../../domain/metrics';
+import {
+  formatValue, goalMet, goalProgress, goalRemaining, metric,
+} from '../../domain/metrics';
 import {
   availableRanges, deviceTzOffsetMs, RANGE_DAYS, RANGE_LABELS, rangeWindow, type RangeId,
 } from '../../domain/time';
@@ -125,11 +127,17 @@ export function MetricDetailScreen() {
               <Card style={styles.goal}>
                 <View style={styles.goalHead}>
                   <Text variant="label">{`Goal · ${formatValue(metricId, goal)} ${d.unit}`}</Text>
-                  <Text variant="caption" color="textMuted">
-                    {`${formatValue(metricId, Math.abs(latest - goal))} ${d.unit} to go`}
+                  <Text
+                    variant="caption"
+                    color={goalMet(metricId, latest, goal) ? 'success' : 'textMuted'}
+                  >
+                    {goalMet(metricId, latest, goal)
+                      ? 'Goal met'
+                      : `${formatValue(metricId, goalRemaining(metricId, latest, goal))} ${d.unit} to go`}
                   </Text>
                 </View>
-                <ProgressBar value={Math.min(latest, goal)} max={goal} />
+                {/* Direction-aware: a falling metric cannot use value / goal. */}
+                <ProgressBar value={goalProgress(metricId, latest, goal)} max={1} />
                 <Text variant="caption" color="textMuted">
                   {`${series.length} of ${RANGE_DAYS[range]} days have a reading.`}
                 </Text>

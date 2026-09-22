@@ -111,11 +111,14 @@ export function SettingsScreen({ stats }: Props) {
             tone="warn"
             icon="check"
             title={`Imported ${lastImport.imported} reading${lastImport.imported === 1 ? '' : 's'}`}
-            subtitle={
+            subtitle={[
               lastImport.conflicts > 0
                 ? `${lastImport.conflicts} now need a decision — see Sync.`
-                : 'Nothing was in contention with what you typed.'
-            }
+                : 'Nothing was in contention with what you typed.',
+              lastImport.skipped > 0
+                ? `${lastImport.skipped} skipped — those metrics are switched off.`
+                : '',
+            ].filter(Boolean).join(' ')}
           />
         )}
 
