@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { selectEmail, selectName } from '../../app/store/authSlice';
 import { selectCanSignOut, selectQueuedCount } from '../../app/store/syncSlice';
+import { importHealthData, type ImportSummary } from '../../app/importService';
+import { simulateSignInElsewhere } from '../../app/syncService';
 import { signOut } from '../auth/signOut';
 import { getConnectedSources, setConnectedSources } from '../../data/prefs';
 import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
@@ -30,6 +32,17 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
   const queued = useSelector(selectQueuedCount);
   const canSignOut = useSelector(selectCanSignOut);
   const [signingOut, setSigningOut] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [lastImport, setLastImport] = useState<ImportSummary | null>(null);
+
+  async function runImport() {
+    setImporting(true);
+    try {
+      setLastImport(await importHealthData());
+    } finally {
+      setImporting(false);
+    }
+  }
   const [connected, setConnected] = useState(() =>
     getConnectedSources(DEFAULT_CONNECTED),
   );
@@ -71,6 +84,38 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
             />
           ))}
         </Card>
+        <Button
+          label={importing ? 'Importing…' : 'Import now'}
+          variant="secondary"
+          icon="upload-cloud"
+          disabled={importing || connected.length === 0}
+          onPress={() => { runImport(); }}
+        />
+
+        {lastImport && lastImport.failed.length > 0 && (
+          <Banner
+            tone="danger"
+            icon="alert-triangle"
+            title={`${lastImport.failed.map(f => f.providerId).join(', ')} did not answer`}
+            subtitle={`${lastImport.failed[0].error}. The other sources imported normally.`}
+            actionLabel="Try again"
+            onAction={() => { runImport(); }}
+          />
+        )}
+
+        {lastImport && lastImport.failed.length === 0 && (
+          <Banner
+            tone="warn"
+            icon="check"
+            title={`Imported ${lastImport.imported} reading${lastImport.imported === 1 ? '' : 's'}`}
+            subtitle={
+              lastImport.conflicts > 0
+                ? `${lastImport.conflicts} now need a decision — see Sync.`
+                : 'Nothing was in contention with what you typed.'
+            }
+          />
+        )}
+
         <Text variant="caption" color="textMuted">
           Demo build. Every adapter returns seeded fixtures — swap one line in
           providers/registry.ts to read the real HealthKit or Health Connect store.
@@ -89,6 +134,14 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
           <ListRow title="Units" subtitle="Metric (kg, km)" />
           <ListRow title="Goals" subtitle="70.0 kg · 10,000 steps" />
         </Card>
+
+        {__DEV__ && (
+          <Button
+            label="Simulate sign-in on another device"
+            variant="secondary"
+            onPress={simulateSignInElsewhere}
+          />
+        )}
 
         {!canSignOut && (
           <Banner

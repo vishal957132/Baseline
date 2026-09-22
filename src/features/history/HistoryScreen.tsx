@@ -7,7 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import { subscribeToData } from '../../data/changes';
-import { historyPage } from '../../data/measurementRepo';
+import {
+  historyPage, takeLastDeletion, undoDelete, UNDO_WINDOW_MS,
+  type UndoableDeletion,
+} from '../../data/measurementRepo';
 import { EDITABLE_METRICS, metric } from '../../domain/metrics';
 import type { Measurement, MetricId } from '../../domain/types';
 import {
@@ -27,7 +30,7 @@ export function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [undo, setUndo] = useState<string | null>(null);
+  const [undo, setUndo] = useState<UndoableDeletion | null>(null);
 
   /** Newest page, from scratch. Depends only on the filter, so the change
    *  subscription below has a stable function to hold. */
@@ -70,6 +73,20 @@ export function HistoryScreen() {
   // arrive here. Reloading the first page is enough: the change the user just
   // made is at the top.
   useEffect(() => subscribeToData(reload), [reload]);
+
+  // The sheet does the deleting and closes; this is where the undo appears.
+  useEffect(() => {
+    const deletion = takeLastDeletion();
+    if (deletion) setUndo(deletion);
+  }, [items]);
+
+  // The offer lasts exactly as long as the upload is held back. After that the
+  // delete is on its way, and offering to undo it would be a lie.
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const rows = groupByMonth(items);
 
@@ -158,10 +175,13 @@ export function HistoryScreen() {
 
       <Snackbar
         visible={undo !== null}
-        message={undo ?? ''}
+        message={`Deleted ${undo?.label ?? ''}`}
         subtitle="Upload paused for 5s"
         actionLabel="Undo"
-        onAction={() => setUndo(null)}
+        onAction={() => {
+          if (undo) undoDelete(undo.id, undo.lineageId);
+          setUndo(null);
+        }}
       />
     </SafeAreaView>
   );

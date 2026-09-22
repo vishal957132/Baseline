@@ -114,6 +114,18 @@ export class SyncEngine {
     return this.publish();
   }
 
+  /**
+   * Signed in again after a 401.
+   *
+   * Without this the flag was a one-way door: once a session expired the engine
+   * would refuse to run for the rest of the process, even after the user had
+   * authenticated.
+   */
+  async resumeSession(): Promise<SyncState> {
+    this.sessionExpired = false;
+    return this.publish();
+  }
+
   /** Cancel un-sent work for a lineage. Backs undo and cancel-vs-delete. */
   async cancel(lineageId: string): Promise<string[]> {
     const cancelled = await this.deps.outbox.cancelPendingOp(lineageId);
