@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { selectEmail, signedIn } from '../../app/store/authSlice';
 import { selectSync } from '../../app/store/syncSlice';
+import { resumeSession } from '../../app/syncService';
 import { setSession } from '../../data/prefs';
 import { Banner, Button, Card, color, ListRow, space, Text, TextField } from '../../ui';
 import { signIn } from './accounts';
@@ -38,6 +39,8 @@ export function SessionEndedScreen() {
     const { email: e, name } = result.account;
     setSession({ email: e, name, onboarded: true, signedInAt: Date.now() });
     dispatch(signedIn({ email: e, name, onboarded: true }));
+    // Clear the expiry and let the held changes go out, in order.
+    resumeSession();
   }
 
   /** Signing in as someone else clears this device, unsent changes included. */

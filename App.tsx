@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
 import BootSplash from 'react-native-bootsplash';
 
+import { ErrorBoundary } from './src/app/ErrorBoundary';
 import { Navigation } from './src/app/navigation';
 import { store } from './src/app/store';
 import { sessionRestored } from './src/app/store/authSlice';
@@ -77,7 +78,9 @@ function App() {
     <Provider store={store}>
       <SafeAreaProvider>
         <StatusBar barStyle="dark-content" />
-        <Navigation />
+        <ErrorBoundary>
+          <Navigation />
+        </ErrorBoundary>
       </SafeAreaProvider>
     </Provider>
   );

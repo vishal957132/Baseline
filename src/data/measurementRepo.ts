@@ -10,7 +10,7 @@
  */
 
 import { metric as descriptor } from '../domain/metrics';
-import { laneKey } from '../domain/time';
+import { laneKey as makeLaneKey } from '../domain/time';
 import type {
   Conflict,
   DayBucket,
@@ -117,6 +117,72 @@ export async function openConflicts(): Promise<Conflict[]> {
     chosenId: r.chosen_id == null ? null : String(r.chosen_id),
     resolvedAt: r.resolved_at == null ? null : Number(r.resolved_at),
   }));
+}
+
+/**
+ * Bring in a batch of readings from a health provider.
+ *
+ * Imports never enqueue an outbox op: they came *from* outside, so there is
+ * nothing to push back. Idempotency is the `(source, external_id)` unique
+ * index — replaying the same batch updates rather than duplicating, which is
+ * what makes a re-import safe.
+ *
+ * @returns how many rows were written, and which lanes now need a decision.
+ */
+export async function importMeasurements(
+  readings: Array<{
+    externalId: string;
+    metric: MetricId;
+    value: number;
+    recordedAt: number;
+    source: SourceId;
+  }>,
+  ctx: { tzOffsetMs: number; now: number },
+): Promise<{ imported: number; conflicts: number }> {
+  if (readings.length === 0) return { imported: 0, conflicts: 0 };
+
+  const lanes = new Set<string>();
+
+  await inTransaction(async tx => {
+    for (const r of readings) {
+      const lane = makeLaneKey(r.metric, r.recordedAt, ctx.tzOffsetMs);
+      lanes.add(lane);
+      const seq = nextLocalSeq();
+      // The provider's own id is the local id too, so the same sample always
+      // lands on the same row however many times it arrives.
+      const id = `${r.source}:${r.externalId}`;
+
+      await exec(tx, {
+        sql: `INSERT INTO measurements
+                (id, lineage_id, lane_key, metric, value, unit, recorded_at,
+                 updated_at, source, external_id, server_seq, local_seq, deleted_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+              ON CONFLICT (source, external_id) DO UPDATE SET
+                value = excluded.value,
+                recorded_at = excluded.recorded_at,
+                lane_key = excluded.lane_key,
+                updated_at = excluded.updated_at`,
+        params: [
+          id, id, lane, r.metric, r.value, descriptor(r.metric).unit,
+          r.recordedAt, ctx.now, r.source, r.externalId, seq,
+        ],
+      });
+
+      await writeEvent(tx, {
+        measurementId: id, lineageId: id, laneKey: lane,
+        kind: 'import', value: r.value, source: r.source, seq, now: ctx.now,
+      });
+    }
+  });
+
+  // An import is the other way a typed reading falls into contention.
+  let conflicts = 0;
+  for (const lane of lanes) {
+    if (await detectConflict(lane, ctx.now)) conflicts += 1;
+  }
+
+  notifyDataChanged();
+  return { imported: readings.length, conflicts };
 }
 
 /** One reading, for the edit form to fill itself from. */
@@ -258,7 +324,7 @@ export interface NewMeasurement {
  * "recorded 72.8, then corrected to 72.6" into one candidate.
  */
 export async function addMeasurement(m: NewMeasurement): Promise<void> {
-  const lane = laneKey(m.metric, m.recordedAt, m.tzOffsetMs);
+  const lane = makeLaneKey(m.metric, m.recordedAt, m.tzOffsetMs);
   const seq = nextLocalSeq();
 
   await getDb().transaction(async tx => {
@@ -294,7 +360,7 @@ export async function editMeasurement(args: {
   tzOffsetMs: number;
   now: number;
 }): Promise<void> {
-  const lane = laneKey(args.metric, args.recordedAt, args.tzOffsetMs);
+  const lane = makeLaneKey(args.metric, args.recordedAt, args.tzOffsetMs);
   const seq = nextLocalSeq();
 
   await getDb().transaction(async tx => {
@@ -333,6 +399,8 @@ export async function removeMeasurement(args: {
   laneKey: string;
   source: SourceId;
   now: number;
+  /** What the undo snackbar calls it, e.g. "73.4 kg". */
+  label?: string;
   cancelOpIds?: string[];
 }): Promise<void> {
   const seq = nextLocalSeq();
@@ -360,6 +428,51 @@ export async function removeMeasurement(args: {
     }
   });
 
+  notifyDataChanged();
+}
+
+export interface UndoableDeletion {
+  id: string;
+  lineageId: string;
+  label: string;
+  at: number;
+}
+
+/**
+ * The last deletion, consumed once.
+ *
+ * The sheet performs the delete and closes; History is what shows the undo.
+ * Rather than threading it through navigation, the deletion is left here and
+ * taken by whichever screen asks first.
+ */
+let lastDeletion: UndoableDeletion | null = null;
+
+export function takeLastDeletion(): UndoableDeletion | null {
+  const held = lastDeletion;
+  lastDeletion = null;
+  return held;
+}
+
+/**
+ * Put a deleted reading back, and drop its queued delete if it never left.
+ *
+ * This is the same primitive as cancel-vs-delete: remove the op before
+ * dispatch. Within the undo window the server never hears about it at all.
+ */
+export async function undoDelete(id: string, lineageId: string): Promise<void> {
+  const seq = nextLocalSeq();
+  await inTransaction(async tx => {
+    await exec(tx, {
+      sql: `UPDATE measurements SET deleted_at = NULL, updated_at = ?, local_seq = ?
+            WHERE id = ?`,
+      params: [Date.now(), seq, id],
+    });
+    await exec(tx, {
+      sql: `DELETE FROM outbox WHERE lineage_id = ? AND kind = 'delete'
+            AND status IN ('pending', 'failed')`,
+      params: [lineageId],
+    });
+  });
   notifyDataChanged();
 }
 
@@ -439,6 +552,15 @@ function writeEvent(
   );
 }
 
+/**
+ * Deletes are held for five seconds before they may be sent.
+ *
+ * That window is what makes Undo a cancellation rather than a correction: the
+ * op is dropped before it ever reaches the server, so there is nothing to
+ * apologise for afterwards. Design page 08 says as much — "Upload paused for 5s".
+ */
+export const UNDO_WINDOW_MS = 5_000;
+
 function queueOp(
   tx: Tx,
   op: {
@@ -450,13 +572,14 @@ function queueOp(
     payload: object;
   },
 ) {
+  const holdUntil = op.kind === 'delete' ? op.now + UNDO_WINDOW_MS : null;
   return tx.execute(
     `INSERT INTO outbox
        (id, lane_key, lineage_id, local_seq, kind, payload, status, attempts, next_attempt_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
     [
       `op-${op.lineageId}-${op.seq}`, op.laneKey, op.lineageId, op.seq,
-      op.kind, JSON.stringify(op.payload), op.now,
+      op.kind, JSON.stringify(op.payload), holdUntil, op.now,
     ],
   );
 }

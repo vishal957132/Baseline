@@ -107,6 +107,7 @@ export function LogEntryScreen() {
       laneKey: existing.data?.laneKey ?? laneKey(metricId, now, tz),
       source: 'manual',
       now,
+      label: `${value || existing.data?.value} ${d.unit}`,
     });
     nav.goBack();
   }
