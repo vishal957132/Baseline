@@ -199,3 +199,38 @@ describe('summarise', () => {
     expect(summarise(series([73.1, 72.6]))!.change).toBeCloseTo(-0.5, 5);
   });
 });
+
+/**
+ * The statistics describe different things per metric, and which series they
+ * are handed is the whole decision.
+ *
+ * Running them off the day buckets got weight visibly wrong on screen: 20 kg
+ * and 80 kg logged the same afternoon collapse to one bucket, so average,
+ * lowest and highest all reported the same number. These pin the arithmetic;
+ * the choice of input lives in MetricDetailScreen.
+ */
+describe('summarise over readings rather than day buckets', () => {
+  const readings = [20, 80].map((value, day) => ({ day, value }));
+
+  it('separates average, lowest and highest when given both readings', () => {
+    const stats = summarise(readings);
+    expect(stats).not.toBeNull();
+    expect(stats?.average).toBe(50);
+    expect(stats?.lowest).toBe(20);
+    expect(stats?.highest).toBe(80);
+  });
+
+  /** One point collapses all three — which is exactly what was on screen. */
+  it('collapses to a single number when handed one collapsed bucket', () => {
+    const stats = summarise([{ day: 0, value: 20 }]);
+    expect(stats?.average).toBe(20);
+    expect(stats?.lowest).toBe(20);
+    expect(stats?.highest).toBe(20);
+  });
+
+  /** `change` is first-to-last, so the input has to be chronological. */
+  it('reads the trend from the order it is given', () => {
+    expect(summarise(readings)?.change).toBe(60);
+    expect(summarise([...readings].reverse())?.change).toBe(-60);
+  });
+});

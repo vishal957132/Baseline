@@ -18,7 +18,7 @@ export function Chip({ label, tone = 'neutral' }: { label: string; tone?: Tone }
   const { bg, fg } = TONES[tone];
   return (
     <View style={[styles.chip, { backgroundColor: bg }]}>
-      <Text variant="caption" color={fg}>
+      <Text variant="caption" color={fg} numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -28,6 +28,9 @@ export function Chip({ label, tone = 'neutral' }: { label: string; tone?: Tone }
 const styles = StyleSheet.create({
   chip: {
     alignSelf: 'flex-start',
+    // Never squeezed by a long neighbour: a chip is a status, and half a
+    // status word is worse than a truncated value beside it.
+    flexShrink: 0,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,

@@ -4,20 +4,25 @@ import { FlashList } from '@shopify/flash-list';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSelector } from 'react-redux';
 
 import type { RootStackParams } from '../../app/navigation';
+import { selectUnits } from '../../app/store/unitsSlice';
 import { subscribeToData } from '../../data/changes';
 import {
-  historyPage, takeLastDeletion, undoDelete, UNDO_WINDOW_MS,
+  historyPage, pendingLineageIds, takeLastDeletion, undoDelete, UNDO_WINDOW_MS,
   type UndoableDeletion,
 } from '../../data/measurementRepo';
 import { EDITABLE_METRICS, metric } from '../../domain/metrics';
 import type { Measurement, MetricId } from '../../domain/types';
+import { unitFor } from '../../domain/units';
 import {
   Banner, color, EmptyState, Icon, radius, ScreenHeader, Skeleton, Snackbar,
   space, Text,
 } from '../../ui';
+import { confirmDeleteMeasurement } from '../components/confirmDelete';
 import { MeasurementRow } from '../components/MeasurementRow';
+import { rowStatus } from '../components/rowStatus';
 
 const PAGE = 50;
 
@@ -25,20 +30,28 @@ type Row = { kind: 'month'; label: string } | { kind: 'item'; item: Measurement 
 
 export function HistoryScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
+  const units = useSelector(selectUnits);
   const [filter, setFilter] = useState<MetricId | undefined>('weight');
   const [items, setItems] = useState<Measurement[]>([]);
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoableDeletion | null>(null);
+  // Which lineages still have upload work. Re-read with the page, so a badge
+  // turns into a tick on the same change signal that refreshes the list.
+  const [pending, setPending] = useState<Set<string>>(new Set());
 
   /** Newest page, from scratch. Depends only on the filter, so the change
    *  subscription below has a stable function to hold. */
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await historyPage(Date.now(), PAGE, filter);
+      const [page, outstanding] = await Promise.all([
+        historyPage(Date.now(), PAGE, filter),
+        pendingLineageIds(),
+      ]);
       setItems(page);
+      setPending(outstanding);
       setDone(page.length < PAGE);
       setError(null);
     } catch (e) {
@@ -87,6 +100,11 @@ export function HistoryScreen() {
     const timer = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
   }, [undo]);
+
+  const confirmDelete = useCallback(
+    (m: Measurement) => confirmDeleteMeasurement(m, units),
+    [units],
+  );
 
   const rows = groupByMonth(items);
 
@@ -156,12 +174,18 @@ export function HistoryScreen() {
             ) : (
               <MeasurementRow
                 measurement={row.item}
-                status={row.item.serverSeq === null ? 'pending' : 'synced'}
+                unit={unitFor(row.item.metric, units)}
+                status={rowStatus(row.item, pending)}
                 onEdit={
                   metric(row.item.metric).editable
                     ? () => nav.navigate('LogEntry', {
                         metricId: row.item.metric, measurementId: row.item.id,
                       })
+                    : undefined
+                }
+                onDelete={
+                  metric(row.item.metric).editable
+                    ? () => confirmDelete(row.item)
                     : undefined
                 }
               />

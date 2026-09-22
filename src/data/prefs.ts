@@ -8,6 +8,7 @@
 
 import { createMMKV } from 'react-native-mmkv';
 
+import type { UnitPrefs } from '../domain/units';
 import type { MetricId, SourceId } from '../domain/types';
 
 const store = createMMKV();
@@ -22,6 +23,8 @@ export interface Session {
 const SESSION = 'session';
 const GOALS = 'goals';
 const SOURCES = 'connectedSources';
+const METRICS = 'importedMetrics';
+const UNITS = 'unitPrefs';
 
 /** A cached session opens straight to the data — no network needed. */
 export function getSession(): Session | null {
@@ -36,10 +39,6 @@ export function getSession(): Session | null {
 
 export function setSession(session: Session): void {
   store.set(SESSION, JSON.stringify(session));
-}
-
-export function clearSession(): void {
-  store.remove(SESSION);
 }
 
 /**
@@ -93,9 +92,54 @@ export function setConnectedSources(ids: SourceId[]): void {
   store.set(SOURCES, JSON.stringify(ids));
 }
 
+/**
+ * Which metrics an import is allowed to bring in.
+ *
+ * Separate from the connected sources: a source can be on while one of the
+ * metrics it offers is off — "read from Apple Health, but not my sleep".
+ */
+export function getImportedMetrics(defaults: MetricId[]): MetricId[] {
+  const raw = store.getString(METRICS);
+  if (!raw) return defaults;
+  try {
+    const parsed = JSON.parse(raw) as MetricId[];
+    return Array.isArray(parsed) ? parsed : defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+export function setImportedMetrics(ids: MetricId[]): void {
+  store.set(METRICS, JSON.stringify(ids));
+}
+
+/**
+ * Which unit each metric is displayed in.
+ *
+ * A setting, like the goals: it changes how every stored reading is read back,
+ * never what was stored. Empty means "the canonical unit for each metric",
+ * which is why an absent key is not an error.
+ */
+export function getUnitPrefs(): UnitPrefs {
+  const raw = store.getString(UNITS);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as UnitPrefs;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function setUnitPrefs(prefs: UnitPrefs): void {
+  store.set(UNITS, JSON.stringify(prefs));
+}
+
 /** Everything local to one signed-in person. Used by sign-out. */
 export function clearPrefs(): void {
   store.remove(SESSION);
   store.remove(GOALS);
   store.remove(SOURCES);
+  store.remove(METRICS);
+  store.remove(UNITS);
 }
