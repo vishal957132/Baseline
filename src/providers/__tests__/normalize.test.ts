@@ -1,7 +1,9 @@
 import * as apple from '../adapters/appleHealth';
 import * as hc from '../adapters/healthConnect';
 import * as feed from '../adapters/jsonFeed';
-import { importFrom, provider, providersForPlatform } from '../registry';
+import {
+  connectedProviders, DEFAULT_CONNECTED, importFrom, provider, providersForPlatform,
+} from '../registry';
 import type { Reading } from '../types';
 
 const AT = Date.UTC(2026, 8, 21, 10, 3); // 21 Sep 2026 10:03 UTC
@@ -131,6 +133,34 @@ describe('registry', () => {
   it('exposes the shape strings the Connect screen shows', () => {
     expect(provider('health_connect').sampleShape).toBe('weight, grams');
     expect(provider('json_feed').sampleShape).toBe('weight_kg, lb values');
+  });
+
+  describe('the on/off switch', () => {
+    it('imports only from the sources that are switched on', () => {
+      expect(connectedProviders(['apple_health'], 'ios').map(p => p.id))
+        .toEqual(['apple_health']);
+    });
+
+    it('returns nothing when everything is off', () => {
+      expect(connectedProviders([], 'ios')).toEqual([]);
+    });
+
+    it('still respects the platform — a choice cannot conjure HealthKit on Android', () => {
+      expect(connectedProviders(['apple_health'], 'android')).toEqual([]);
+    });
+
+    /** Design page 13 shows the legacy feed off: a source whose field names
+     *  lie should be opt-in. */
+    it('leaves the legacy feed off by default', () => {
+      expect(DEFAULT_CONNECTED).not.toContain('json_feed');
+      expect(connectedProviders(DEFAULT_CONNECTED, 'ios').map(p => p.id))
+        .toEqual(['apple_health']);
+    });
+
+    it('turns the legacy feed on when asked', () => {
+      expect(connectedProviders([...DEFAULT_CONNECTED, 'json_feed'], 'ios').map(p => p.id))
+        .toEqual(['apple_health', 'json_feed']);
+    });
   });
 
   /** One failing source degrades one card; the rest still import. */

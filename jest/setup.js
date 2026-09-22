@@ -7,3 +7,8 @@ jest.mock('react-native-bootsplash', () => ({
     brand: { source: 0 },
   }),
 }));
+
+// NetInfo is native; the library ships a mock for exactly this.
+jest.mock('@react-native-community/netinfo', () =>
+  require('@react-native-community/netinfo/jest/netinfo-mock'),
+);

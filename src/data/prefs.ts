@@ -8,7 +8,7 @@
 
 import { createMMKV } from 'react-native-mmkv';
 
-import type { MetricId } from '../domain/types';
+import type { MetricId, SourceId } from '../domain/types';
 
 const store = createMMKV();
 
@@ -21,6 +21,7 @@ export interface Session {
 
 const SESSION = 'session';
 const GOALS = 'goals';
+const SOURCES = 'connectedSources';
 
 /** A cached session opens straight to the data — no network needed. */
 export function getSession(): Session | null {
@@ -41,6 +42,18 @@ export function clearSession(): void {
   store.remove(SESSION);
 }
 
+/**
+ * Remember that onboarding is done.
+ *
+ * Redux is memory: flipping the flag there gets the user into the app, but the
+ * next launch reads the cached session, so the flag has to live there too or
+ * onboarding repeats forever.
+ */
+export function markOnboarded(): void {
+  const session = getSession();
+  if (session) setSession({ ...session, onboarded: true });
+}
+
 export type Goals = Partial<Record<MetricId, number>>;
 
 const DEFAULT_GOALS: Goals = { weight: 70, steps: 10_000, water: 2_500 };
@@ -59,8 +72,30 @@ export function setGoals(goals: Goals): void {
   store.set(GOALS, JSON.stringify(goals));
 }
 
+/**
+ * Which health sources are switched on.
+ *
+ * The caller supplies the default, so this file needs no knowledge of what a
+ * provider is — it only stores the answer.
+ */
+export function getConnectedSources(defaults: SourceId[]): SourceId[] {
+  const raw = store.getString(SOURCES);
+  if (!raw) return defaults;
+  try {
+    const parsed = JSON.parse(raw) as SourceId[];
+    return Array.isArray(parsed) ? parsed : defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+export function setConnectedSources(ids: SourceId[]): void {
+  store.set(SOURCES, JSON.stringify(ids));
+}
+
 /** Everything local to one signed-in person. Used by sign-out. */
 export function clearPrefs(): void {
   store.remove(SESSION);
   store.remove(GOALS);
+  store.remove(SOURCES);
 }

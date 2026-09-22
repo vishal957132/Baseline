@@ -3,7 +3,7 @@ import React from 'react';
 import { Provider } from 'react-redux';
 
 import { store } from '../../../app/store';
-import { getGoals } from '../../../data/prefs';
+import { getGoals, getSession, setSession } from '../../../data/prefs';
 import { GoalsScreen } from '../GoalsScreen';
 
 const mounted = () =>
@@ -18,6 +18,37 @@ const mounted = () =>
  * and `fireEvent` are async. Without the await the state update has not
  * flushed, and the assertion reads the previous value.
  */
+describe('finishing onboarding', () => {
+  const signedInNotOnboarded = () =>
+    setSession({
+      email: 'demo@baseline.app', name: 'Demo User',
+      onboarded: false, signedInAt: 1,
+    });
+
+  it('is remembered after "Start tracking", so a restart opens the dashboard', async () => {
+    signedInNotOnboarded();
+    await mounted();
+    await fireEvent.press(screen.getByText('Start tracking'));
+    expect(getSession()?.onboarded).toBe(true);
+  });
+
+  /** Skipping the goals still finishes onboarding — they are optional. */
+  it('is remembered after "Set these later" too', async () => {
+    signedInNotOnboarded();
+    await mounted();
+    await fireEvent.press(screen.getByText('Set these later'));
+    expect(getSession()?.onboarded).toBe(true);
+  });
+
+  it('does not save goals when they were skipped', async () => {
+    signedInNotOnboarded();
+    await mounted();
+    await fireEvent.changeText(screen.getByDisplayValue('70'), '68.5');
+    await fireEvent.press(screen.getByText('Set these later'));
+    expect(getGoals().weight).toBe(70); // the default, not the typed value
+  });
+});
+
 describe('the goals form accepts typing', () => {
   it('updates the target weight field as the user types', async () => {
     await mounted();

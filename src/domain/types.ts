@@ -42,7 +42,10 @@ export interface Conflict {
   id: string;
   laneKey: string;
   candidateIds: string[];
+  /** What the resolver pre-selected. */
   suggestedId: string;
+  /** What the user actually kept. Null until they decide. */
+  chosenId: string | null;
   resolvedAt: number | null;
 }
 

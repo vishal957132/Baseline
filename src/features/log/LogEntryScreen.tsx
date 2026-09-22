@@ -1,5 +1,5 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
 } from 'react-native';
@@ -8,9 +8,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import { selectSync } from '../../app/store/syncSlice';
-import { addMeasurement, editMeasurement, removeMeasurement } from '../../data/measurementRepo';
+import {
+  addMeasurement, editMeasurement, measurementById, removeMeasurement,
+} from '../../data/measurementRepo';
+import { useQuery } from '../../data/useQuery';
 import { EDITABLE_METRICS, metric } from '../../domain/metrics';
-import { deviceTzOffsetMs, laneKey } from '../../domain/time';
+import {
+  deviceTzOffsetMs, fromLocalDateTime, laneKey, toLocalDateTime,
+} from '../../domain/time';
 import type { MetricId } from '../../domain/types';
 import { Banner, Button, color, radius, space, Text, TextField } from '../../ui';
 
@@ -26,31 +31,59 @@ export function LogEntryScreen() {
   const nav = useNavigation();
   const sync = useSelector(selectSync);
 
+  const editing = route.params?.measurementId;
+  const tz = deviceTzOffsetMs();
+  const opened = useRef(toLocalDateTime(Date.now(), tz)).current;
+
   const [metricId, setMetricId] = useState<MetricId>(route.params?.metricId ?? 'weight');
   const [value, setValue] = useState('');
+  const [date, setDate] = useState(opened.date);
+  const [time, setTime] = useState(opened.time);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const editing = route.params?.measurementId;
+  // Editing fills the form from the reading itself. Without this an edit kept
+  // the value you retyped but stamped it `now`, quietly moving an old reading
+  // to today.
+  const existing = useQuery(
+    () => (editing ? measurementById(editing) : Promise.resolve(null)),
+    [editing],
+  );
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current || !existing.data) return;
+    loaded.current = true;
+    const m = existing.data;
+    setMetricId(m.metric);
+    setValue(String(m.value));
+    const at = toLocalDateTime(m.recordedAt, tz);
+    setDate(at.date);
+    setTime(at.time);
+  }, [existing.data, tz]);
+
   const d = metric(metricId);
   const parsed = Number(value);
-  const valid = value.trim() !== '' && Number.isFinite(parsed) && parsed > 0;
+  const recordedAt = fromLocalDateTime(date, time, tz);
+  const numberOk = value.trim() !== '' && Number.isFinite(parsed) && parsed > 0;
+  const whenOk = recordedAt !== null && recordedAt <= Date.now();
+  const valid = numberOk && whenOk;
 
   async function save() {
-    if (!valid || saving) return;
+    if (!valid || saving || recordedAt === null) return;
     setSaving(true);
     const now = Date.now();
-    const tz = deviceTzOffsetMs();
     try {
       if (editing) {
         await editMeasurement({
-          id: editing, lineageId: editing, metric: metricId,
-          value: parsed, recordedAt: now, source: 'manual', tzOffsetMs: tz, now,
+          id: editing,
+          lineageId: existing.data?.lineageId ?? editing,
+          metric: metricId,
+          value: parsed, recordedAt, source: 'manual', tzOffsetMs: tz, now,
         });
       } else {
         await addMeasurement({
           id: `m-${now}`, metric: metricId, value: parsed,
-          recordedAt: now, source: 'manual', tzOffsetMs: tz, now,
+          recordedAt, source: 'manual', tzOffsetMs: tz, now,
         });
       }
       nav.goBack();
@@ -68,8 +101,10 @@ export function LogEntryScreen() {
     const now = Date.now();
     await removeMeasurement({
       id: editing,
-      lineageId: editing,
-      laneKey: laneKey(metricId, now, deviceTzOffsetMs()),
+      lineageId: existing.data?.lineageId ?? editing,
+      // The reading's own lane, not today's — deleting must not touch a
+      // different day's queue.
+      laneKey: existing.data?.laneKey ?? laneKey(metricId, now, tz),
       source: 'manual',
       now,
     });
@@ -128,6 +163,26 @@ export function LogEntryScreen() {
           placeholder="0"
           autoFocus
         />
+        <View style={styles.when}>
+          <View style={styles.whenField}>
+            <TextField label="Date" value={date} onChangeText={setDate}
+              placeholder="2026-09-22" />
+          </View>
+          <View style={styles.whenField}>
+            <TextField label="Time" value={time} onChangeText={setTime}
+              placeholder="08:43" />
+          </View>
+        </View>
+
+        {!whenOk && (date !== '' || time !== '') && (
+          <Banner
+            tone="danger"
+            icon="alert-triangle"
+            title={recordedAt === null ? 'That is not a real date and time' : 'That is in the future'}
+            subtitle="Use YYYY-MM-DD and HH:MM. A reading cannot be taken later than now."
+          />
+        )}
+
         <TextField label="Note (optional)" value={note} onChangeText={setNote} />
 
         {!sync.online && (
@@ -170,6 +225,8 @@ const styles = StyleSheet.create({
   },
   body: { gap: space.lg, padding: space.lg, paddingBottom: space.xxl },
   tabs: { flexDirection: 'row', gap: space.sm },
+  when: { flexDirection: 'row', gap: space.md },
+  whenField: { flex: 1 },
   tab: {
     flex: 1, alignItems: 'center', paddingVertical: space.md,
     backgroundColor: color.card, borderRadius: radius.pill,
