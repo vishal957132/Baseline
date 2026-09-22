@@ -9,6 +9,8 @@ import { HistoryScreen } from '../HistoryScreen';
 
 jest.mock('../../../data/measurementRepo', () => ({
   historyPage: jest.fn().mockResolvedValue([]),
+  pendingLineageIds: jest.fn().mockResolvedValue(new Set()),
+  removeMeasurement: jest.fn().mockResolvedValue(undefined),
   takeLastDeletion: jest.fn().mockReturnValue(null),
   undoDelete: jest.fn().mockResolvedValue(undefined),
   UNDO_WINDOW_MS: 5000,
@@ -37,6 +39,7 @@ beforeEach(() => {
   mockNavigate.mockClear();
   const repo = jest.requireMock('../../../data/measurementRepo');
   repo.historyPage.mockReset().mockResolvedValue([]);
+  repo.pendingLineageIds.mockReset().mockResolvedValue(new Set());
   repo.takeLastDeletion.mockReset().mockReturnValue(null);
 });
 

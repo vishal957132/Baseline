@@ -59,11 +59,15 @@ export async function listRange(
 ): Promise<Measurement[]> {
   // recorded_at is compared bare so (metric, recorded_at) serves it. Wrapping
   // it in arithmetic here would silently turn this into a full scan.
+  // local_seq breaks the tie. The log form records to the minute, so several
+  // readings routinely share a recorded_at, and without a second key their
+  // order is whatever the scan happens to produce — which decides what the
+  // metric screen calls the latest reading.
   const { rows } = await getDb().execute(
     `SELECT ${COLUMNS} FROM measurements
      WHERE metric = ? AND recorded_at >= ? AND recorded_at < ?
        AND deleted_at IS NULL
-     ORDER BY recorded_at DESC`,
+     ORDER BY recorded_at DESC, local_seq DESC`,
     [metricId, from, to],
   );
   return (rows as Row[]).map(toMeasurement);
@@ -96,13 +100,41 @@ export async function historyPage(
 ): Promise<Measurement[]> {
   const filter = metricId ? 'metric = ? AND ' : '';
   const params = metricId ? [metricId, before, limit] : [before, limit];
+  // Same tiebreak as listRange, so the list has one stable order.
+  //
+  // Note the cursor itself is still recorded_at alone: if a page boundary fell
+  // between readings sharing a timestamp, the next page would skip the rest of
+  // them. It takes 50 readings in one minute to hit, so the fix — a composite
+  // (recorded_at, local_seq) cursor — is noted rather than built.
   const { rows } = await getDb().execute(
     `SELECT ${COLUMNS} FROM measurements
      WHERE ${filter}recorded_at < ? AND deleted_at IS NULL
-     ORDER BY recorded_at DESC LIMIT ?`,
+     ORDER BY recorded_at DESC, local_seq DESC LIMIT ?`,
     params,
   );
   return (rows as Row[]).map(toMeasurement);
+}
+
+/**
+ * Lineages with upload work still outstanding.
+ *
+ * The history badge asks this rather than `server_seq IS NULL`, and the
+ * difference is visible: an imported reading has no server sequence and never
+ * gets one, because `importMeasurements` deliberately queues nothing — it came
+ * *from* a device, so there is nothing to push back. Reading the badge off
+ * `server_seq` therefore marked every imported reading "Waiting to sync" for
+ * ever, while the Sync tab correctly showed an empty queue. Two true facts,
+ * one contradiction, and the badge was the half that was lying.
+ *
+ * `LIVE` here mirrors the outbox's own definition: anything not yet completed,
+ * including ops that are failing or dead, because those are still waiting.
+ */
+export async function pendingLineageIds(): Promise<Set<string>> {
+  const { rows } = await getDb().execute(
+    `SELECT DISTINCT lineage_id FROM outbox
+     WHERE status IN ('pending', 'sending', 'failed', 'dead', 'conflict')`,
+  );
+  return new Set((rows as Row[]).map(r => String(r.lineage_id)));
 }
 
 /** Lanes needing a decision. A conflict is always scoped to one lane. */

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
+  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View,
 } from 'react-native';
 import { useDispatch } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -103,12 +103,6 @@ export function SignInScreen() {
             <Text variant="caption" color="textMuted">{`${a.password} · ${a.hint}`}</Text>
           </Card>
         ))}
-
-        <Pressable hitSlop={8}>
-          <Text variant="label" color="ink" align="center">
-            New to Baseline? Create an account
-          </Text>
-        </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
