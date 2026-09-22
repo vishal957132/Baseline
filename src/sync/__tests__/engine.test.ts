@@ -266,6 +266,30 @@ describe('lifecycle', () => {
     expect(p).toHaveBeenCalledTimes(duringRun);
   });
 
+  /**
+   * The flag used to be a one-way door: once a session expired the engine
+   * refused to run for the rest of the process, even after re-authenticating.
+   */
+  it('runs again once the session is resumed', async () => {
+    const push = jest.fn()
+      .mockRejectedValueOnce(new ApiError('session ended', 401, false))
+      .mockResolvedValue({ status: 'accepted', serverSeq: 1, duplicate: false });
+    const { engine, push: p, clock } = build([op('a', 'weight:21', 1)], { push });
+
+    expect((await engine.run()).sessionExpired).toBe(true);
+    const attempts = p.mock.calls.length;
+
+    await engine.run();
+    expect(p).toHaveBeenCalledTimes(attempts); // still refusing
+
+    const state = await engine.resumeSession();
+    expect(state.sessionExpired).toBe(false);
+
+    clock.advance(backoffMs(0) + 1);
+    await engine.run();
+    expect(p.mock.calls.length).toBeGreaterThan(attempts);
+  });
+
   it('ignores a second run while one is in flight', async () => {
     let release: (v: unknown) => void = () => {};
     const inFlight = new Promise(resolve => { release = resolve; });

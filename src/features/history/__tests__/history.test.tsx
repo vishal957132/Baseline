@@ -9,6 +9,9 @@ import { HistoryScreen } from '../HistoryScreen';
 
 jest.mock('../../../data/measurementRepo', () => ({
   historyPage: jest.fn().mockResolvedValue([]),
+  takeLastDeletion: jest.fn().mockReturnValue(null),
+  undoDelete: jest.fn().mockResolvedValue(undefined),
+  UNDO_WINDOW_MS: 5000,
 }));
 
 // `jest.mock` is hoisted above the file, so the factory may only close over
@@ -32,9 +35,9 @@ const mount = () =>
 
 beforeEach(() => {
   mockNavigate.mockClear();
-  jest.requireMock('../../../data/measurementRepo').historyPage
-    .mockReset()
-    .mockResolvedValue([]);
+  const repo = jest.requireMock('../../../data/measurementRepo');
+  repo.historyPage.mockReset().mockResolvedValue([]);
+  repo.takeLastDeletion.mockReset().mockReturnValue(null);
 });
 
 /**

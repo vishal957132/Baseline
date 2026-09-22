@@ -102,6 +102,26 @@ export function retryLane(laneKey: string): void {
     .catch(() => undefined);
 }
 
+/**
+ * Pretend the session ended elsewhere, so the 401 path can be seen.
+ *
+ * The lifecycle scenario it demonstrates — signed in on another device — is
+ * real, but nothing in a mock backend can decide it has happened. Dev only.
+ */
+export function simulateSignInElsewhere(): void {
+  api.configure({ forceUnauthorized: true });
+  drain();
+}
+
+/** Back in after re-authenticating. */
+export function resumeSession(): void {
+  api.configure({ forceUnauthorized: false });
+  engine
+    ?.resumeSession()
+    .then(() => drain())
+    .catch(() => undefined);
+}
+
 /** Cancel un-sent work for a record. Backs undo and cancel-vs-delete. */
 export async function cancelPending(lineageId: string): Promise<string[]> {
   return (await engine?.cancel(lineageId)) ?? [];
