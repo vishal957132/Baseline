@@ -50,6 +50,38 @@ export function formatValue(id: MetricId, value: number): string {
   return value.toFixed(metric(id).precision);
 }
 
+/**
+ * How far toward the goal, from 0 to 1.
+ *
+ * Direction-aware, and that is the whole point: `value / goal` is only
+ * meaningful when higher is better. Applied to weight it reports a goal of
+ * 70 kg as complete while the reading is 72.6, because the fill was clamped to
+ * the goal rather than measured against it.
+ *
+ * For a falling metric the ratio is inverted, so progress rises as the reading
+ * falls and reaches 1 exactly when the goal is met.
+ */
+export function goalProgress(id: MetricId, value: number, goal: number): number {
+  if (goal <= 0) return 0;
+  if (metric(id).direction === 'up') return clamp(value / goal);
+  return value <= goal ? 1 : clamp(goal / value);
+}
+
+/** What is left to do, in the metric's own units. Never negative. */
+export function goalRemaining(id: MetricId, value: number, goal: number): number {
+  const remaining =
+    metric(id).direction === 'up' ? goal - value : value - goal;
+  return Math.max(0, remaining);
+}
+
+export function goalMet(id: MetricId, value: number, goal: number): boolean {
+  return goalRemaining(id, value, goal) === 0;
+}
+
+function clamp(n: number): number {
+  return Math.min(1, Math.max(0, n));
+}
+
 /** `↓ 0.5 kg` is good news; `↑ 180 kcal` is good news. Direction decides. */
 export function isImprovement(id: MetricId, delta: number): boolean {
   if (delta === 0) return false;

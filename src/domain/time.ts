@@ -78,7 +78,7 @@ export function localDayKey(recordedAt: number, tzOffsetMs: number): string {
   return dayIndexToKey(localDayIndex(recordedAt, tzOffsetMs));
 }
 
-export function dayIndexToKey(dayIndex: number): string {
+function dayIndexToKey(dayIndex: number): string {
   return new Date(dayIndex * MS_PER_DAY).toISOString().slice(0, 10);
 }
 
