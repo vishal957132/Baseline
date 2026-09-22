@@ -20,6 +20,8 @@ import type {
   SourceId,
 } from '../domain/types';
 import { bucketSql } from './bucketSql';
+import { resolve, type Candidate } from '../sync/conflict';
+import { notifyDataChanged } from './changes';
 import { getDb, nextLocalSeq } from './db';
 
 const COLUMNS = `id, lineage_id, lane_key, metric, value, unit, recorded_at,
@@ -104,7 +106,7 @@ export async function historyPage(
 /** Lanes needing a decision. A conflict is always scoped to one lane. */
 export async function openConflicts(): Promise<Conflict[]> {
   const { rows } = await getDb().execute(
-    `SELECT id, lane_key, candidate_ids, suggested_id, resolved_at
+    `SELECT id, lane_key, candidate_ids, suggested_id, chosen_id, resolved_at
      FROM conflicts WHERE resolved_at IS NULL ORDER BY created_at DESC`,
   );
   return (rows as Row[]).map(r => ({
@@ -112,8 +114,130 @@ export async function openConflicts(): Promise<Conflict[]> {
     laneKey: String(r.lane_key),
     candidateIds: JSON.parse(String(r.candidate_ids)) as string[],
     suggestedId: String(r.suggested_id),
+    chosenId: r.chosen_id == null ? null : String(r.chosen_id),
     resolvedAt: r.resolved_at == null ? null : Number(r.resolved_at),
   }));
+}
+
+/** One reading, for the edit form to fill itself from. */
+export async function measurementById(id: string): Promise<Measurement | null> {
+  const { rows } = await getDb().execute(
+    `SELECT ${COLUMNS} FROM measurements WHERE id = ?`,
+    [id],
+  );
+  return rows.length > 0 ? toMeasurement(rows[0] as Row) : null;
+}
+
+/** Live readings in a lane — what a conflict is decided between. */
+export async function laneCandidates(lane: string): Promise<Measurement[]> {
+  const { rows } = await getDb().execute(
+    `SELECT ${COLUMNS} FROM measurements
+     WHERE lane_key = ? AND deleted_at IS NULL
+     ORDER BY local_seq`,
+    [lane],
+  );
+  return (rows as Row[]).map(toMeasurement);
+}
+
+function toCandidate(m: Measurement): Candidate {
+  return {
+    id: m.id,
+    lineageId: m.lineageId,
+    value: m.value,
+    source: m.source,
+    serverSeq: m.serverSeq,
+    localSeq: m.localSeq,
+    recordedAt: m.recordedAt,
+  };
+}
+
+/**
+ * Raise a conflict if this lane now needs a decision.
+ *
+ * The rule itself lives in `sync/conflict` and is pure; this only feeds it the
+ * lane's live readings and stores the answer. It asks only when something the
+ * user typed is in contention — two imports merge silently, and two manual
+ * readings are just two readings.
+ *
+ * @returns whether a conflict was raised.
+ */
+export async function detectConflict(
+  lane: string,
+  now: number,
+): Promise<boolean> {
+  // One open question per lane at a time. Re-asking the same one would stack
+  // duplicates on the Sync screen.
+  const existing = await openConflicts();
+  if (existing.some(c => c.laneKey === lane)) return false;
+
+  const rows = await laneCandidates(lane);
+  if (rows.length < 2) return false;
+
+  const outcome = resolve(rows.map(toCandidate));
+  if (outcome.outcome !== 'ask') return false;
+
+  await getDb().execute(
+    `INSERT INTO conflicts
+       (id, lane_key, candidate_ids, suggested_id, resolved_at, created_at)
+     VALUES (?, ?, ?, ?, NULL, ?)`,
+    [
+      `cf-${lane}-${now}`,
+      lane,
+      JSON.stringify(outcome.candidates.map(c => c.id)),
+      outcome.winner.id,
+      now,
+    ],
+  );
+  return true;
+}
+
+/**
+ * Record the user's decision.
+ *
+ * The losers are soft-deleted, not destroyed: they stop counting as current
+ * readings, so the chart and the dashboard follow the winner, but their rows
+ * and their events remain — which is what "the rest stay in history" protects.
+ * It also means the lane now holds one live reading, so detection does not
+ * immediately ask the same question again.
+ */
+export async function resolveConflict(args: {
+  conflictId: string;
+  chosenId: string;
+  laneKey: string;
+  source: SourceId;
+  now: number;
+}): Promise<void> {
+  const losers = (await laneCandidates(args.laneKey)).filter(
+    m => m.id !== args.chosenId,
+  );
+
+  await inTransaction(async tx => {
+    await exec(tx, {
+      sql: `UPDATE conflicts SET chosen_id = ?, resolved_at = ? WHERE id = ?`,
+      params: [args.chosenId, args.now, args.conflictId],
+    });
+
+    for (const loser of losers) {
+      const seq = nextLocalSeq();
+      await exec(tx, {
+        sql: `UPDATE measurements SET deleted_at = ?, updated_at = ?, local_seq = ?
+              WHERE id = ?`,
+        params: [args.now, args.now, seq, loser.id],
+      });
+      await writeEvent(tx, {
+        measurementId: loser.id,
+        lineageId: loser.lineageId,
+        laneKey: args.laneKey,
+        kind: 'delete',
+        value: loser.value,
+        source: loser.source,
+        seq,
+        now: args.now,
+      });
+    }
+  });
+
+  notifyDataChanged();
 }
 
 // ── writes ───────────────────────────────────────────────────────────────────
@@ -155,6 +279,9 @@ export async function addMeasurement(m: NewMeasurement): Promise<void> {
       payload: { id: m.id, metric: m.metric, value: m.value, recordedAt: m.recordedAt },
     });
   });
+
+  await detectConflict(lane, m.now);
+  notifyDataChanged();
 }
 
 export async function editMeasurement(args: {
@@ -186,6 +313,9 @@ export async function editMeasurement(args: {
       payload: { id: args.id, value: args.value, recordedAt: args.recordedAt },
     });
   });
+
+  await detectConflict(lane, args.now);
+  notifyDataChanged();
 }
 
 /**
@@ -229,6 +359,27 @@ export async function removeMeasurement(args: {
       });
     }
   });
+
+  notifyDataChanged();
+}
+
+/**
+ * Record the number the server gave a reading.
+ *
+ * This is what clears the "Pending" badge: the badge asks whether `serverSeq`
+ * is null, and until the server has accepted the row, it is. Keyed by lineage
+ * so a create and its later edits all settle together.
+ */
+export async function markSynced(
+  lineageId: string,
+  serverSeq: number,
+): Promise<void> {
+  await getDb().execute(
+    'UPDATE measurements SET server_seq = ? WHERE lineage_id = ?',
+    [serverSeq, lineageId],
+  );
+  // This is what flips the badge from Pending to a tick while the user watches.
+  notifyDataChanged();
 }
 
 /**
@@ -246,12 +397,22 @@ export async function clearLocalData(): Promise<void> {
       await tx.execute(`DELETE FROM ${table}`);
     }
   });
+
+  notifyDataChanged();
 }
 
 // ── shared write helpers ─────────────────────────────────────────────────────
 
 interface Tx {
   execute: (sql: string, params?: (string | number | null)[]) => Promise<unknown>;
+}
+
+function exec(tx: Tx, q: { sql: string; params: (string | number | null)[] }) {
+  return tx.execute(q.sql, q.params);
+}
+
+function inTransaction(fn: (tx: Tx) => Promise<void>): Promise<void> {
+  return getDb().transaction(fn as never);
 }
 
 function writeEvent(

@@ -4,8 +4,12 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
-import { isMetricId } from '../../domain/metrics';
-import type { MetricId } from '../../domain/types';
+import {
+  laneCandidates, openConflicts, resolveConflict,
+} from '../../data/measurementRepo';
+import { useQuery } from '../../data/useQuery';
+import { isMetricId, metric } from '../../domain/metrics';
+import type { Measurement, MetricId } from '../../domain/types';
 import { resolve, type Candidate } from '../../sync/conflict';
 import {
   Banner, Button, Card, color, radius, ScreenHeader, space, Text,
@@ -13,9 +17,20 @@ import {
 import { ConflictOption } from '../components/ConflictOption';
 
 interface Props {
-  /** Injected by the app shell so this screen stays pure presentation. */
+  /** Test seam. Left alone, the screen loads the lane's readings itself. */
   candidates?: Candidate[];
-  onKeep?: (candidateId: string, alwaysPreferMine: boolean) => void;
+}
+
+function toCandidate(m: Measurement): Candidate {
+  return {
+    id: m.id,
+    lineageId: m.lineageId,
+    value: m.value,
+    source: m.source,
+    serverSeq: m.serverSeq,
+    localSeq: m.localSeq,
+    recordedAt: m.recordedAt,
+  };
 }
 
 /**
@@ -25,14 +40,33 @@ interface Props {
  * sync/conflict — the rule lives in one pure, tested function, and this screen
  * only renders its output.
  */
-export function ConflictScreen({ candidates = [], onKeep }: Props) {
+export function ConflictScreen({ candidates }: Props) {
   const { laneKey } = useRoute<RouteProp<RootStackParams, 'Conflict'>>().params;
   const nav = useNavigation();
   const metricId: MetricId = pickMetric(laneKey);
 
-  const resolution = candidates.length > 0 ? resolve(candidates) : null;
-  const [chosen, setChosen] = useState(resolution?.winner.id ?? null);
+  const lane = useQuery(() => laneCandidates(laneKey), [laneKey]);
+  const open = useQuery(() => openConflicts(), [laneKey]);
+
+  const live = candidates ?? (lane.data ?? []).map(toCandidate);
+  const resolution = live.length > 1 ? resolve(live) : null;
+  const conflict = (open.data ?? []).find(c => c.laneKey === laneKey);
+
+  const [chosen, setChosen] = useState<string | null>(null);
   const [preferMine, setPreferMine] = useState(false);
+  const selected = chosen ?? resolution?.winner.id ?? null;
+
+  async function keep() {
+    if (!selected || !conflict) return;
+    await resolveConflict({
+      conflictId: conflict.id,
+      chosenId: selected,
+      laneKey,
+      source: 'manual',
+      now: Date.now(),
+    });
+    nav.goBack();
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -49,7 +83,7 @@ export function ConflictScreen({ candidates = [], onKeep }: Props) {
         ) : (
           <>
             <Text variant="body" color="textMuted">
-              {`${resolution.candidates.length} things touched this reading while you were offline. Your entry and your correction are the same record, so they count once. Pick what to keep — the rest stay in history.`}
+              {`${resolution.candidates.length} things touched your ${metric(metricId).label.toLowerCase()} for this day. An entry and its later correction are the same record, so they count once. Pick what to keep — the rest stay in history.`}
             </Text>
 
             <Card style={styles.timeline}>
@@ -74,7 +108,7 @@ export function ConflictScreen({ candidates = [], onKeep }: Props) {
                 value={c.value}
                 title={describe(c)}
                 detail={`${c.source === 'manual' ? 'Manual' : 'Imported'} · ${c.serverSeq === null ? 'this phone' : 'from the server'}`}
-                selected={chosen === c.id}
+                selected={selected === c.id}
                 suggested={resolution.winner.id === c.id}
                 onPress={() => setChosen(c.id)}
               />
@@ -98,11 +132,9 @@ export function ConflictScreen({ candidates = [], onKeep }: Props) {
             </Pressable>
 
             <Button
-              label={`Keep ${resolution.candidates.find(c => c.id === chosen)?.value ?? ''}`}
-              onPress={() => {
-                if (chosen && onKeep) onKeep(chosen, preferMine);
-                nav.goBack();
-              }}
+              label={`Keep ${resolution.candidates.find(c => c.id === selected)?.value ?? ''}`}
+              disabled={!conflict}
+              onPress={() => { keep(); }}
             />
           </>
         )}

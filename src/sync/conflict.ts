@@ -8,8 +8,14 @@
  *    server sequence where there is one, never from a phone clock."
  *
  * So two tiers:
- *   1. nothing manual in contention → merge silently, newest wins;
- *   2. a manual value in contention → ask, suggesting the newest manual one.
+ *   1. nothing typed is in contention → merge silently, newest wins;
+ *   2. something typed disagrees with another source → ask, suggesting the
+ *      newest typed value.
+ *
+ * "In contention" means disagreeing with a *different source*. Two readings you
+ * typed yourself are two readings, not a disagreement — weighing twice in a day
+ * is normal, and four glasses of water certainly are. Asking about those would
+ * be asking the user to arbitrate between two facts they both stated.
  *
  * And "newest" never means the phone clock. It means the server's sequence,
  * falling back to the local counter for rows the server has not seen — those
@@ -75,9 +81,11 @@ export function resolve(
 
   const collapsed = latestPerLineage(candidates);
   const manual = collapsed.filter(c => c.source === 'manual');
+  const sources = new Set(collapsed.map(c => c.source));
 
-  // Tier 1: no human-authored value in contention, or nothing to contend with.
-  if (collapsed.length === 1 || manual.length === 0) {
+  // Tier 1: nothing to contend with, nothing typed, or everything from the
+  // same source — including several readings the user typed themselves.
+  if (collapsed.length === 1 || manual.length === 0 || sources.size === 1) {
     return { outcome: 'auto', candidates: collapsed, winner: collapsed[0] };
   }
 

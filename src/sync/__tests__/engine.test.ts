@@ -281,6 +281,119 @@ describe('lifecycle', () => {
   });
 });
 
+/**
+ * The link that clears the "Pending" badge.
+ *
+ * The badge asks whether a reading has a `serverSeq`. Until the engine reports
+ * the number the server assigned, it does not — so without this the queue
+ * would drain correctly and the UI would still say Pending forever.
+ */
+/**
+ * The stall you can only get by being killed at the wrong moment.
+ *
+ * `claimNext` marks an op `sending` while its request is out. That status
+ * blocks the lane as its head but is never sendable — so a process death
+ * between the two leaves that lane stopped for good, with the UI reporting it
+ * as mid-upload.
+ */
+describe('recovering ops stranded mid-flight', () => {
+  const stranded = (): Op => ({ ...op('a', 'weight:21', 1), status: 'sending' });
+
+  it('a stranded op blocks its lane until it is recovered', async () => {
+    const { engine, push } = build([stranded(), op('b', 'weight:21', 2)]);
+
+    await engine.run();
+    expect(push).not.toHaveBeenCalled(); // the lane is stuck
+
+    await engine.recover();
+    await engine.run();
+    expect(push).toHaveBeenCalledTimes(2); // both ops, in order
+  });
+
+  it('reports how many it reset', async () => {
+    const { engine } = build([stranded(), op('b', 'water:21', 2)]);
+    expect(await engine.recover()).toBe(1);
+  });
+
+  it('leaves the attempt count alone — the send may have reached the server', async () => {
+    const parked: Op = { ...stranded(), attempts: 2 };
+    const { engine, outbox } = build([parked]);
+    await engine.recover();
+    expect((await outbox.all())[0].attempts).toBe(2);
+  });
+
+  it('is a no-op when nothing was in flight', async () => {
+    const { engine } = build([op('a', 'weight:21', 1)]);
+    expect(await engine.recover()).toBe(0);
+  });
+});
+
+describe('reporting the server sequence', () => {
+  it('reports the number the server gave, with the op it belongs to', async () => {
+    const onSynced = jest.fn();
+    const push = jest.fn().mockResolvedValue({
+      status: 'accepted', serverSeq: 42, duplicate: false,
+    });
+    const clock = fakeClock();
+    const outbox = memoryOutbox([op('a', 'weight:21', 1)]);
+    await new SyncEngine({
+      outbox, api: { push }, clock: clock.now,
+      netInfo: { isOnline: () => true }, onSynced,
+    }).run();
+
+    expect(onSynced).toHaveBeenCalledTimes(1);
+    const [sentOp, serverSeq] = onSynced.mock.calls[0];
+    expect(sentOp.lineageId).toBe('a');
+    expect(serverSeq).toBe(42);
+  });
+
+  it('reports it on a replay too, with the original number', async () => {
+    const onSynced = jest.fn();
+    const push = jest.fn().mockResolvedValue({
+      status: 'accepted', serverSeq: 42, duplicate: true,
+    });
+    const clock = fakeClock();
+    await new SyncEngine({
+      outbox: memoryOutbox([op('a', 'weight:21', 1)]),
+      api: { push }, clock: clock.now,
+      netInfo: { isOnline: () => true }, onSynced,
+    }).run();
+
+    expect(onSynced).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a' }), 42,
+    );
+  });
+
+  it('does not report a conflict as synced', async () => {
+    const onSynced = jest.fn();
+    const push = jest.fn().mockResolvedValue({
+      status: 'conflict',
+      server: { laneKey: 'weight:21', value: 72.4, source: 'manual', serverSeq: 9 },
+    });
+    const clock = fakeClock();
+    await new SyncEngine({
+      outbox: memoryOutbox([op('a', 'weight:21', 1)]),
+      api: { push }, clock: clock.now,
+      netInfo: { isOnline: () => true }, onSynced,
+    }).run();
+
+    expect(onSynced).not.toHaveBeenCalled();
+  });
+
+  it('does not report a failure as synced', async () => {
+    const onSynced = jest.fn();
+    const push = jest.fn().mockRejectedValue(new ApiError('boom', 500, true));
+    const clock = fakeClock();
+    await new SyncEngine({
+      outbox: memoryOutbox([op('a', 'weight:21', 1)]),
+      api: { push }, clock: clock.now,
+      netInfo: { isOnline: () => true }, onSynced,
+    }).run();
+
+    expect(onSynced).not.toHaveBeenCalled();
+  });
+});
+
 describe('cancelling un-sent work', () => {
   it('drops every un-sent op for a lineage, create and edits alike', async () => {
     const ops = [op('a', 'weight:21', 1), op('b', 'weight:21', 2)];
@@ -307,6 +420,30 @@ describe('cancelling un-sent work', () => {
 });
 
 describe('published state', () => {
+  /** A queued op used to report as `sending`, so a lane waiting its turn read
+   *  as though a request were already out. */
+  it('distinguishes a queued lane from one with a request out', async () => {
+    const { engine, states } = build([op('a', 'weight:21', 1)]);
+    await engine.run();
+    // Published before anything was sent.
+    expect(states[0].lanes[0].status).toBe('queued');
+  });
+
+  it('reports a backing-off lane as retrying, not sending', async () => {
+    const push = jest.fn().mockRejectedValue(new ApiError('boom', 500, true));
+    const { engine, states } = build([op('a', 'weight:21', 1)], { push });
+    await engine.run();
+    expect(states[states.length - 1].lanes[0].status).toBe('retrying');
+  });
+
+  it('reports when the next attempt is due, so a timer can be set', async () => {
+    const push = jest.fn().mockRejectedValue(new ApiError('boom', 500, true));
+    const { engine, states, clock } = build([op('a', 'weight:21', 1)], { push });
+    await engine.run();
+    const lane = states[states.length - 1].lanes[0];
+    expect(lane.nextAttemptAt).toBe(clock.now() + backoffMs(0));
+  });
+
   it('reports queued counts per lane for the UI', async () => {
     const push = jest.fn().mockRejectedValue(new ApiError('boom', 500, true));
     const { engine, states } = build(

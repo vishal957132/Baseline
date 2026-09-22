@@ -14,10 +14,10 @@ import BootSplash from 'react-native-bootsplash';
 import { Navigation } from './src/app/navigation';
 import { store } from './src/app/store';
 import { sessionRestored } from './src/app/store/authSlice';
+import { ensureDemoData } from './src/app/demoData';
+import { startSync, stopSync } from './src/app/syncService';
 import { openDatabase } from './src/data/db';
 import { getSession } from './src/data/prefs';
-import { deviceTzOffsetMs } from './src/domain/time';
-import { seedDatabase, seedSyncFixtures } from './src/test/seed';
 import { color, Text } from './src/ui';
 
 function App() {
@@ -26,9 +26,22 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        // The cached session is read first: a returning user never sees the
-        // sign-in form, because the local database does not need the network.
+        // Read the cached session up front — it is a synchronous local read —
+        // but hold the dispatch until the database is open. Auth status is what
+        // gates the navigator, so dispatching here would let the dashboard
+        // mount and query a database that does not exist yet: every card would
+        // report "could not refresh" on a cold start and only recover on retry.
         const session = getSession();
+
+        await openDatabase();
+        await ensureDemoData(session?.email ?? null);
+
+        // The queue exists from the moment the database is open, so the engine
+        // starts here rather than on a screen — changes sync whether or not
+        // anyone is looking at the Sync tab.
+        startSync(store.dispatch);
+
+        // Now the data layer is ready, let the tree render.
         store.dispatch(
           sessionRestored(
             session
@@ -40,13 +53,6 @@ function App() {
               : null,
           ),
         );
-
-        const db = await openDatabase();
-        if (__DEV__) {
-          const now = Date.now();
-          await seedDatabase(db, now, deviceTzOffsetMs());
-          await seedSyncFixtures(db, now, deviceTzOffsetMs());
-        }
       } catch (e) {
         store.dispatch(sessionRestored(null));
         setError(String((e as Error)?.message ?? e));
@@ -54,12 +60,14 @@ function App() {
         await BootSplash.hide({ fade: true });
       }
     })();
+
+    return stopSync;
   }, []);
 
   if (error) {
     return (
       <View style={styles.error}>
-        <Text variant="title">Could not open the database</Text>
+        <Text variant="title">Could not start</Text>
         <Text variant="body" color="textMuted">{error}</Text>
       </View>
     );

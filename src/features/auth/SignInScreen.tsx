@@ -5,6 +5,7 @@ import {
 import { useDispatch } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ensureDemoData } from '../../app/demoData';
 import { signedIn } from '../../app/store/authSlice';
 import { setSession } from '../../data/prefs';
 import { Banner, Button, Card, color, space, Text, TextField } from '../../ui';
@@ -23,14 +24,21 @@ export function SignInScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  function submit() {
+  async function submit() {
     const result = signIn(email, password);
     if (!result.ok) {
       setError(result.reason);
       return;
     }
+
     const { email: e, name, onboarded } = result.account;
     setSession({ email: e, name, onboarded, signedInAt: Date.now() });
+
+    // Signing out wipes the local tables, so a fresh session may be starting
+    // on an empty database. Seed before the tree renders, or the dashboard
+    // paints nothing and only fills after a reload.
+    await ensureDemoData(e);
+
     dispatch(signedIn({ email: e, name, onboarded }));
   }
 
@@ -79,7 +87,7 @@ export function SignInScreen() {
             subtitle="Check the demo accounts below." />
         )}
 
-        <Button label="Sign in" onPress={submit}
+        <Button label="Sign in" onPress={() => { submit(); }}
           disabled={email.trim() === '' || password === ''} />
 
         <Text variant="caption" color="textMuted">

@@ -6,7 +6,7 @@ import { useDispatch } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { onboardingFinished } from '../../app/store/authSlice';
-import { getGoals, setGoals } from '../../data/prefs';
+import { getGoals, markOnboarded, setGoals } from '../../data/prefs';
 import { Banner, Button, Card, color, radius, ScreenHeader, space, Text, TextField } from '../../ui';
 
 const STEP_PRESETS = [6_000, 10_000, 15_000];
@@ -49,6 +49,9 @@ export function GoalsScreen() {
         water: Number(water) ? Number(water) * 1000 : undefined,
       });
     }
+    // Persist before dispatching: the store gets the user into the app, but
+    // only the cached session survives a restart.
+    markOnboarded();
     dispatch(onboardingFinished());
   }
 

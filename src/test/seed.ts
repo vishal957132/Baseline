@@ -12,7 +12,7 @@
 import type { DB } from '@op-engineering/op-sqlite';
 
 import { METRICS } from '../domain/metrics';
-import { laneKey, MS_PER_DAY } from '../domain/time';
+import { laneKey, MS_PER_DAY, startOfLocalDayMs } from '../domain/time';
 import type { MetricId, SourceId } from '../domain/types';
 
 const SPAN_DAYS = 1300;
@@ -48,7 +48,12 @@ type Params = (string | number | null)[];
 export function buildSeedRows(now: number, tzOffsetMs: number, seed = 1): Params[] {
   const rnd = mulberry32(seed);
   const rows: Params[] = [];
-  const start = now - SPAN_DAYS * MS_PER_DAY;
+  // Anchored to local midnight and ending today. Anchoring to the current
+  // time-of-day left "days" unaligned with the lane boundaries, and stopping a
+  // day short meant today's lanes were always empty — so a reading entered now
+  // had nothing to be in contention with.
+  const today = startOfLocalDayMs(now, tzOffsetMs);
+  const start = today - (SPAN_DAYS - 1) * MS_PER_DAY;
   let weight = 75.4;
   let seq = 0;
 
@@ -58,15 +63,21 @@ export function buildSeedRows(now: number, tzOffsetMs: number, seed = 1): Params
 
     for (const id of Object.keys(PER_DAY) as MetricId[]) {
       for (let n = 0; n < PER_DAY[id]; n++) {
-        // Spread across waking hours rather than clustering at midnight.
-        const at = dayStart + (6 + rnd() * 16) * 3_600_000;
+        // Spread across waking hours rather than clustering at midnight, and
+        // never later than now — today is only partly over.
+        const at = Math.min(dayStart + (6 + rnd() * 16) * 3_600_000, now);
         let value: number;
         let source: SourceId = 'manual';
 
         if (id === 'weight') {
           weight += (rnd() - 0.52) * 0.28; // a slow downward drift
           value = Math.round(weight * 10) / 10;
-          source = rnd() < 0.6 ? 'manual' : 'withings';
+          // Today's reading always comes from the scale, so typing one yourself
+          // reliably demonstrates the conflict path rather than depending on a
+          // coin flip. Every other day is a realistic mix.
+          source = day === SPAN_DAYS - 1
+            ? 'withings'
+            : rnd() < 0.6 ? 'manual' : 'withings';
         } else if (id === 'steps') {
           value = Math.round((weekend ? 3200 : 6400) + rnd() * 7600);
           source = 'apple_health';
@@ -122,32 +133,52 @@ export async function seedDatabase(
   return rows.length;
 }
 
-/** The unsent tail from design page 09: three ops in two lanes, one retrying. */
+/**
+ * The unsent tail from design page 09: three ops in two lanes, one retrying.
+ *
+ * No conflict fixture any more. It sat on today's weight lane — the same lane a
+ * typed weight entry lands in — and detection declines to raise a conflict
+ * where one is already open, so the fake one was shadowing the real one. A
+ * conflict you can actually cause is worth more than one that is merely drawn.
+ *
+ * Only runs on a genuinely clean slate — nothing queued and no open conflict.
+ * Two rules, learned the hard way:
+ *
+ *  - it must not delete. Clearing the outbox first meant every reload threw
+ *    away whatever the user had queued, leaving their readings marked Pending
+ *    with no op left to ever send them.
+ *  - it must not assume. Checking only the outbox was not enough: once the
+ *    three ops had drained the queue looked empty again, so it re-inserted the
+ *    conflict row and collided with the one already there.
+ *
+ * Every insert is OR IGNORE as well, so a re-run can never fail the launch.
+ */
 export async function seedSyncFixtures(db: DB, now: number, tz: number) {
+  const { rows } = await db.execute(
+    `SELECT (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM conflicts) AS c`,
+  );
+  if (Number(rows[0]?.c ?? 0) > 0) return;
+
   const weight = laneKey('weight', now, tz);
   const water = laneKey('water', now, tz);
 
   await db.transaction(async tx => {
-    await tx.execute('DELETE FROM outbox');
-    await tx.execute('DELETE FROM conflicts');
 
+    // The first op has failed three times and is backing off, so its status is
+    // `failed` — a `pending` op with a future next_attempt_at would read as
+    // "Sending" while it was really waiting.
     const ops: Params[] = [
-      ['op-4f19a2', weight, 'fx-weight', 12, 'create', '{"value":72.8}', 3, now + 8_000],
-      ['op-7c02d8', weight, 'fx-weight', 13, 'update', '{"value":72.6}', 0, null],
-      ['op-b81e40', water, 'fx-water', 14, 'delete', '{"value":250}', 0, null],
+      ['op-4f19a2', weight, 'fx-weight', 12, 'create', '{"value":72.8}', 'failed', 3, now + 8_000],
+      ['op-7c02d8', weight, 'fx-weight', 13, 'update', '{"value":72.6}', 'pending', 0, null],
+      ['op-b81e40', water, 'fx-water', 14, 'delete', '{"value":250}', 'pending', 0, null],
     ];
     for (const op of ops) {
       await tx.execute(
-        `INSERT INTO outbox (id, lane_key, lineage_id, local_seq, kind, payload,
-           status, attempts, next_attempt_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ${now})`,
+        `INSERT OR IGNORE INTO outbox (id, lane_key, lineage_id, local_seq, kind,
+           payload, status, attempts, next_attempt_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${now})`,
         op,
       );
     }
-    await tx.execute(
-      `INSERT INTO conflicts (id, lane_key, candidate_ids, suggested_id, resolved_at, created_at)
-       VALUES ('cf-weight', ?, ?, 'fx-weight', NULL, ?)`,
-      [weight, JSON.stringify(['fx-weight', 'fx-import', 'fx-ipad']), now],
-    );
   });
 }
