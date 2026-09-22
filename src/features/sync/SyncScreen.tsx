@@ -3,7 +3,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSelector } from 'react-redux';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import { selectSync } from '../../app/store/syncSlice';
@@ -12,7 +11,7 @@ import { useQuery } from '../../data/useQuery';
 import { retryLane, syncNow } from '../../app/syncService';
 import { MAX_ATTEMPTS } from '../../sync/engine';
 import {
-  Banner, Button, Card, color, EmptyState, ListRow, ScreenHeader, space, Text,
+  Banner, Button, Card, EmptyState, ListRow, Screen, ScreenHeader, Text, color, space,
 } from '../../ui';
 import { SyncQueueItem } from '../components/SyncQueueItem';
 
@@ -47,7 +46,7 @@ export function SyncScreen({
   const needsDecision = conflicts.data ?? [];
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <Screen style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <ScreenHeader title="Sync" />
 
@@ -170,7 +169,7 @@ export function SyncScreen({
 
         {queued > 0 && <Button label="Try uploading now" onPress={onRetryAll} />}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

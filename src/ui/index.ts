@@ -7,6 +7,7 @@ export { Icon } from './Icon';
 export { ListRow } from './ListRow';
 export { ProgressBar } from './ProgressBar';
 export { ProgressRing } from './ProgressRing';
+export { Screen } from './Screen';
 export { ScreenHeader } from './ScreenHeader';
 export { Skeleton } from './Skeleton';
 export { Snackbar } from './Snackbar';

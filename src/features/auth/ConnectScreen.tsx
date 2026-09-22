@@ -2,7 +2,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import { ALL_METRICS, metric } from '../../domain/metrics';
@@ -12,7 +11,7 @@ import {
 } from '../../data/prefs';
 import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
 import {
-  Banner, Button, Card, Chip, color, Icon, ScreenHeader, space, Text,
+  Banner, Button, Card, Chip, Icon, Screen, ScreenHeader, Text, color, space,
 } from '../../ui';
 
 /** What each source calls the metric — the reason an adapter layer exists. */
@@ -54,7 +53,7 @@ export function ConnectScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <Screen style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <ScreenHeader eyebrow="Step 1 of 2" title="Where should we read from?" />
 
@@ -112,7 +111,7 @@ export function ConnectScreen() {
           <Text variant="label" color="ink" align="center">Skip for now</Text>
         </Pressable>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

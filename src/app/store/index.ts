@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 
 import authReducer from './authSlice';
+import goalsReducer from './goalsSlice';
 import syncReducer from './syncSlice';
 import unitsReducer from './unitsSlice';
 
@@ -10,7 +11,12 @@ import unitsReducer from './unitsSlice';
  * for data and no cache to invalidate.
  */
 export const store = configureStore({
-  reducer: { auth: authReducer, sync: syncReducer, units: unitsReducer },
+  reducer: {
+    auth: authReducer,
+    goals: goalsReducer,
+    sync: syncReducer,
+    units: unitsReducer,
+  },
 });
 
 export type RootState = ReturnType<typeof store.getState>;

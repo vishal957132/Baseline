@@ -1,5 +1,4 @@
 import {
-  availableRanges,
   deviceTzOffsetMs,
   formatDayShort,
   fromLocalDateTime,
@@ -115,26 +114,34 @@ describe('rangeWindow', () => {
   });
 });
 
-describe('availableRanges', () => {
-  // Design page 15: "Ranges unlock as the window fills" — one reading is
-  // progress, but it is not a trend, so no range is offered.
-  /** Page 15 keeps "7 days" active and greys the rest — disabling every range
-   *  would leave the selected one unselectable. */
-  it('keeps the shortest range selectable with a single reading', () => {
-    expect(availableRanges(1)).toEqual(['7d']);
+/**
+ * The window a range covers, and the reason `availableRanges` is gone.
+ *
+ * It offered only the shortest range until the *current* window held two days
+ * of data, which stranded anyone whose readings were older than a week: the
+ * 7-day window is empty, so the wider ranges lock, and the only view that
+ * would show the reading is the one you cannot select. Ranges are now always
+ * selectable and the chart says honestly when a window is empty.
+ */
+describe('rangeWindow covers whole local days', () => {
+  const tz = 19_800_000; // IST
+  const now = Date.UTC(2026, 8, 22, 17, 0);
+  const day = (t: number) => new Date(t + tz).toISOString().slice(0, 10);
+
+  it('includes today and the six days before it', () => {
+    const { from, to } = rangeWindow('7d', now, tz);
+    expect(day(from)).toBe('2026-09-16');
+    expect(day(to)).toBe('2026-09-23'); // half-open
   });
 
-  it('locks the longer ranges until there is a trend to see', () => {
-    expect(availableRanges(1)).not.toContain('30d');
-    expect(availableRanges(1)).not.toContain('3mo');
-  });
+  /** The case from the bug: one day outside the seven, and it must be reachable. */
+  it('excludes the eighth day back, which the wider ranges then have to cover', () => {
+    const week = rangeWindow('7d', now, tz);
+    const month = rangeWindow('30d', now, tz);
+    const eighthDayBack = Date.UTC(2026, 8, 15, 6, 0) - tz;
 
-  it('offers 7d once two days have readings', () => {
-    expect(availableRanges(2)).toContain('7d');
-  });
-
-  it('offers every range once the span is wide', () => {
-    expect(availableRanges(90)).toEqual(['7d', '30d', '3mo']);
+    expect(eighthDayBack).toBeLessThan(week.from);
+    expect(eighthDayBack).toBeGreaterThanOrEqual(month.from);
   });
 });
 

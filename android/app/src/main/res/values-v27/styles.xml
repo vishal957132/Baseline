@@ -1,0 +1,14 @@
+<resources>
+    <!--
+      Dark navigation-bar buttons, from API 27.
+
+      Without it the three-button navigation renders white on the app's cream
+      background and reads as a missing navigation bar — the bar is drawn, its
+      buttons are simply the same colour as what is behind them. Gesture
+      navigation hides this, because a single pill is easier to make out than
+      three white glyphs.
+    -->
+    <style name="AppTheme" parent="AppThemeBase">
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

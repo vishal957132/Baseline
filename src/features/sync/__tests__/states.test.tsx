@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import React from 'react';
 import { Provider } from 'react-redux';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import syncReducer, { syncStateChanged } from '../../../app/store/syncSlice';
 import type { LaneState, SyncState } from '../../../sync/engine';
@@ -28,6 +29,9 @@ const lane = (over: Partial<LaneState> = {}): LaneState => ({
   ...over,
 });
 
+const SAFE_FRAME = { x: 0, y: 0, width: 390, height: 844 };
+const SAFE_INSETS = { top: 47, left: 0, right: 0, bottom: 34 };
+
 function mount(state: Partial<SyncState>, props = {}) {
   const store = configureStore({ reducer: { sync: syncReducer } });
   store.dispatch(
@@ -37,9 +41,11 @@ function mount(state: Partial<SyncState>, props = {}) {
     }),
   );
   return render(
+    <SafeAreaProvider initialMetrics={{ frame: SAFE_FRAME, insets: SAFE_INSETS }}>
     <Provider store={store}>
       <SyncScreen {...props} />
-    </Provider>,
+    </Provider>
+    </SafeAreaProvider>,
   );
 }
 
