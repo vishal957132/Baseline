@@ -39,6 +39,18 @@ export function DashboardScreen() {
   const today = new Date();
   const stepsToday = steps.data?.[steps.data.length - 1]?.value ?? null;
 
+  // One failing source degrades one card; the rest of the dashboard keeps
+  // working on cached data (design page 15). The banner says which, and
+  // retries only those — not the whole screen.
+  const cards = [
+    { id: 'steps' as const, q: steps },
+    { id: 'weight' as const, q: weight },
+    { id: 'sleep' as const, q: sleep },
+    { id: 'water' as const, q: water },
+    { id: 'energy' as const, q: energy },
+  ];
+  const failed = cards.filter(c => c.q.error);
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.body}>
@@ -56,6 +68,21 @@ export function DashboardScreen() {
             subtitle={`${queued} change${queued === 1 ? '' : 's'} waiting to sync`}
             actionLabel="View"
             onAction={() => nav.navigate('Tabs')}
+          />
+        )}
+
+        {failed.length > 0 && (
+          <Banner
+            tone="danger"
+            icon="alert-triangle"
+            title={`${failed.map(f => metric(f.id).label).join(' and ')} did not answer`}
+            subtitle={
+              failed.length === cards.length
+                ? 'Nothing could be refreshed. What you see is the last reading kept on this device.'
+                : 'The other metrics are up to date. What you see here is still your own data, from the device.'
+            }
+            actionLabel="Try again"
+            onAction={() => failed.forEach(f => f.q.reload())}
           />
         )}
 

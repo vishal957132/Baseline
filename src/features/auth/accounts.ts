@@ -16,6 +16,13 @@ export interface Account {
   password: string;
   /** Skips onboarding — this is the account that already has history. */
   onboarded: boolean;
+  /**
+   * Whether this account gets the demo history and sync fixtures.
+   *
+   * False is not an oversight: one account exists so the empty states can be
+   * seen, and seeding it would make them unreachable.
+   */
+  seedHistory: boolean;
   /** Shown on the sign-in screen so a reviewer knows what each one does. */
   hint: string;
 }
@@ -26,6 +33,7 @@ export const ACCOUNTS: Account[] = [
     name: 'Vishal Rabadiya',
     password: 'baseline',
     onboarded: true,
+    seedHistory: true,
     hint: 'Existing user — opens straight to seeded history',
   },
   {
@@ -33,6 +41,7 @@ export const ACCOUNTS: Account[] = [
     name: 'Demo User',
     password: 'demo1234',
     onboarded: false,
+    seedHistory: true,
     hint: 'New user — walks through Connect and Goals first',
   },
   {
@@ -40,6 +49,7 @@ export const ACCOUNTS: Account[] = [
     name: 'Empty Account',
     password: 'empty1234',
     onboarded: true,
+    seedHistory: false,
     hint: 'No readings — shows the empty states',
   },
 ];
@@ -48,11 +58,15 @@ export type SignInResult =
   | { ok: true; account: Account }
   | { ok: false; reason: string };
 
+/** The account for an email, if there is one. Case-insensitive. */
+export function accountFor(email: string | null | undefined): Account | undefined {
+  if (!email) return undefined;
+  return ACCOUNTS.find(a => a.email.toLowerCase() === email.trim().toLowerCase());
+}
+
 /** Case-insensitive on email, exact on password. */
 export function signIn(email: string, password: string): SignInResult {
-  const account = ACCOUNTS.find(
-    a => a.email.toLowerCase() === email.trim().toLowerCase(),
-  );
+  const account = accountFor(email);
   if (!account) return { ok: false, reason: 'No account with that email' };
   if (account.password !== password) return { ok: false, reason: 'Wrong password' };
   return { ok: true, account };

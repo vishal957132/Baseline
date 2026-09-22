@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { subscribeToData } from './changes';
+
 export interface QueryResult<T> {
   data: T | null;
   loading: boolean;
@@ -44,6 +46,10 @@ export function useQuery<T>(run: () => Promise<T>, deps: unknown[] = []): QueryR
   }, [query]);
 
   useEffect(load, [load]);
+
+  // Re-read when anything writes. Without this a saved reading does not appear
+  // until the screen is remounted, and a Pending badge never becomes a tick.
+  useEffect(() => subscribeToData(load), [load]);
 
   return { ...state, reload: load };
 }

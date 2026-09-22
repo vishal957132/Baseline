@@ -53,6 +53,18 @@ export interface Outbox {
    */
   retryLane(laneKey: string): Promise<void>;
   /**
+   * Reset ops left mid-flight, and report how many.
+   *
+   * An op is marked `sending` while a request is out. If the process dies
+   * before the reply arrives, it stays that way — and `sending` blocks its lane
+   * as the head while never being sendable, so that lane would stall forever.
+   *
+   * Re-sending is safe because the op id is the idempotency key: the server
+   * either has not seen it, or recognises it and answers with the same
+   * sequence. Called once at startup.
+   */
+  recoverInFlight(): Promise<number>;
+  /**
    * Drop un-sent ops for a lineage and report what was dropped.
    *
    * One primitive, two features: the five-second undo, and deleting an entry
@@ -149,6 +161,21 @@ export function sqliteOutbox(db: SqlDb): Outbox {
       );
     },
 
+    async recoverInFlight() {
+      const { rows } = await db.execute(
+        "SELECT COUNT(*) AS n FROM outbox WHERE status = 'sending'",
+      );
+      const stranded = Number(rows[0]?.n ?? 0);
+      if (stranded > 0) {
+        // The attempt count is left alone: the send may well have reached the
+        // server, so this counts as the attempt it was.
+        await db.execute(
+          "UPDATE outbox SET status = 'pending' WHERE status = 'sending'",
+        );
+      }
+      return stranded;
+    },
+
     async cancelPendingOp(lineageId) {
       const { rows } = await db.execute(
         `SELECT id FROM outbox
@@ -221,6 +248,11 @@ export function memoryOutbox(seed: Op[] = []): Outbox {
           op.nextAttemptAt = null;
         }
       }
+    },
+    async recoverInFlight() {
+      const stranded = ops.filter(o => o.status === 'sending');
+      stranded.forEach(o => { o.status = 'pending'; });
+      return stranded.length;
     },
     async cancelPendingOp(lineageId) {
       const doomed = ops.filter(

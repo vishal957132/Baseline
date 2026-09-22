@@ -7,7 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { RootStackParams } from '../../app/navigation';
 import { ALL_METRICS, metric } from '../../domain/metrics';
 import type { MetricId, SourceId } from '../../domain/types';
-import { providersForPlatform } from '../../providers/registry';
+import { getConnectedSources, setConnectedSources } from '../../data/prefs';
+import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
 import {
   Banner, Button, Card, Chip, color, Icon, ScreenHeader, space, Text,
 } from '../../ui';
@@ -25,10 +26,21 @@ const FIELD_NAMES: Record<MetricId, string> = {
 export function ConnectScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const providers = providersForPlatform();
-  const [chosen, setChosen] = useState<SourceId | null>(null);
+  const [connected, setConnected] = useState<SourceId[]>(() =>
+    getConnectedSources(DEFAULT_CONNECTED),
+  );
   const [metrics, setMetrics] = useState<MetricId[]>(ALL_METRICS);
 
-  const toggle = (id: MetricId) =>
+  /** Writes through immediately — there is no Save on this step. */
+  function toggleSource(id: SourceId) {
+    const next = connected.includes(id)
+      ? connected.filter(x => x !== id)
+      : [...connected, id];
+    setConnected(next);
+    setConnectedSources(next);
+  }
+
+  const toggleMetric = (id: MetricId) =>
     setMetrics(m => (m.includes(id) ? m.filter(x => x !== id) : [...m, id]));
 
   return (
@@ -42,8 +54,8 @@ export function ConnectScreen() {
         </Text>
 
         {providers.map(p => (
-          <Card key={p.id} onPress={() => setChosen(p.id)}
-            style={chosen === p.id ? styles.picked : undefined}>
+          <Card key={p.id} onPress={() => toggleSource(p.id)}
+            style={connected.includes(p.id) ? styles.picked : undefined}>
             <View style={styles.row}>
               <View style={styles.grow}>
                 <Text variant="label">{p.label}</Text>
@@ -51,8 +63,8 @@ export function ConnectScreen() {
                   {`${p.platform} · sample data: ${p.sampleShape}`}
                 </Text>
               </View>
-              <Chip label={chosen === p.id ? 'Using' : 'Use'}
-                tone={chosen === p.id ? 'provider' : 'neutral'} />
+              <Chip label={connected.includes(p.id) ? 'On' : 'Off'}
+                tone={connected.includes(p.id) ? 'provider' : 'neutral'} />
             </View>
           </Card>
         ))}
@@ -60,7 +72,7 @@ export function ConnectScreen() {
         <Text variant="caption" color="textMuted">READ THESE METRICS</Text>
         <Card style={styles.list}>
           {ALL_METRICS.map(id => (
-            <Pressable key={id} onPress={() => toggle(id)} style={styles.metric}
+            <Pressable key={id} onPress={() => toggleMetric(id)} style={styles.metric}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: metrics.includes(id) }}>
               <View style={[styles.box, metrics.includes(id) && styles.boxOn]}>
@@ -79,7 +91,7 @@ export function ConnectScreen() {
           subtitle="Not readings from your device. Imports still never overwrite what you typed yourself." />
 
         <Button label="Continue" onPress={() => nav.navigate('Goals')}
-          disabled={chosen === null} />
+          disabled={connected.length === 0} />
         <Pressable onPress={() => nav.navigate('Goals')} hitSlop={8}>
           <Text variant="label" color="ink" align="center">Skip for now</Text>
         </Pressable>
