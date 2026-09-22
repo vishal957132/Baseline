@@ -1,8 +1,10 @@
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import type { RootStackParams } from '../../app/navigation';
 import { selectEmail, selectName } from '../../app/store/authSlice';
 import { selectCanSignOut, selectQueuedCount } from '../../app/store/syncSlice';
 import { importHealthData, type ImportSummary } from '../../app/importService';
@@ -10,11 +12,14 @@ import { simulateSignInElsewhere } from '../../app/syncService';
 import { storageStats } from '../../data/measurementRepo';
 import { useQuery } from '../../data/useQuery';
 import { signOut } from '../auth/signOut';
+import { selectGoals } from '../../app/store/goalsSlice';
 import { selectUnits, unitChanged } from '../../app/store/unitsSlice';
 import {
-  getConnectedSources, getGoals, setConnectedSources, setUnitPrefs,
+  getConnectedSources, getImportedMetrics, setConnectedSources,
+  setImportedMetrics, setUnitPrefs,
 } from '../../data/prefs';
-import { metric } from '../../domain/metrics';
+import { ALL_METRICS, metric } from '../../domain/metrics';
+import type { Goals } from '../../data/prefs';
 import type { MetricId } from '../../domain/types';
 import {
   CONVERTIBLE_METRICS, formatWithUnit, UNIT_OPTIONS, unitFor, type UnitId,
@@ -23,7 +28,7 @@ import {
   connectedProviders, DEFAULT_CONNECTED, providersForPlatform,
 } from '../../providers/registry';
 import {
-  Banner, Button, Card, Chip, color, ListRow, radius, ScreenHeader, space, Text,
+  Banner, Button, Card, Chip, Icon, ListRow, Screen, ScreenHeader, Text, color, radius, space,
 } from '../../ui';
 
 interface Props {
@@ -37,6 +42,7 @@ interface Props {
  * size, and the guard that stops you signing out over unsent changes.
  */
 export function SettingsScreen({ stats }: Props) {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const measured = useQuery(() => storageStats(), []);
   const storage = stats ?? measured.data;
   const dispatch = useDispatch();
@@ -60,6 +66,24 @@ export function SettingsScreen({ stats }: Props) {
     getConnectedSources(DEFAULT_CONNECTED),
   );
   const units = useSelector(selectUnits);
+  const goals = useSelector(selectGoals);
+  /*
+   * Which metrics an import may bring in.
+   *
+   * Chosen during onboarding and, until now, never again — a decision made
+   * once on a screen you cannot return to was permanent until reinstall. Held
+   * in local state rather than Redux because nothing outside this screen and
+   * the import renders from it, and the import reads storage directly.
+   */
+  const [imported, setImported] = useState(() => getImportedMetrics(ALL_METRICS));
+
+  function toggleMetric(id: MetricId) {
+    const next = imported.includes(id)
+      ? imported.filter(x => x !== id)
+      : [...imported, id];
+    setImported(next);
+    setImportedMetrics(next);
+  }
 
   /**
    * Both the store and MMKV: the store is what the screens re-render from, and
@@ -90,7 +114,7 @@ export function SettingsScreen({ stats }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <Screen style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <ScreenHeader title="Settings" />
 
@@ -163,6 +187,33 @@ export function SettingsScreen({ stats }: Props) {
           providers/registry.ts to read the real HealthKit or Health Connect store.
         </Text>
 
+        <Text variant="caption" color="textMuted">READ THESE METRICS</Text>
+        <Card style={styles.list}>
+          {ALL_METRICS.map(id => (
+            <ListRow
+              key={id}
+              title={metric(id).label}
+              subtitle={
+                imported.includes(id)
+                  ? 'Brought in by an import'
+                  : 'Skipped by an import'
+              }
+              onPress={() => toggleMetric(id)}
+              right={
+                <Chip
+                  label={imported.includes(id) ? 'On' : 'Off'}
+                  tone={imported.includes(id) ? 'provider' : 'neutral'}
+                />
+              }
+            />
+          ))}
+        </Card>
+        <Text variant="caption" color="textMuted">
+          {imported.length === 0
+            ? 'Nothing selected — an import would bring in nothing.'
+            : 'Only affects what an import reads. You can still log any metric yourself, and switching one off never removes readings you already have.'}
+        </Text>
+
         <Text variant="caption" color="textMuted">ON THIS DEVICE</Text>
         <Card style={styles.list}>
           <ListRow
@@ -216,7 +267,12 @@ export function SettingsScreen({ stats }: Props) {
 
         <Text variant="caption" color="textMuted">GOALS</Text>
         <Card style={styles.list}>
-          <ListRow title="Targets" subtitle={describeGoals(units)} />
+          <ListRow
+            title="Targets"
+            subtitle={describeGoals(goals, units)}
+            onPress={() => nav.navigate('EditGoals')}
+            right={<Icon name="chevron-right" size={18} color={color.textMuted} />}
+          />
         </Card>
 
         {__DEV__ && (
@@ -250,13 +306,14 @@ export function SettingsScreen({ stats }: Props) {
           />
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 /** The saved goals, each in the unit the user reads it in. */
-function describeGoals(units: Parameters<typeof unitFor>[1]): string {
-  const goals = getGoals();
+function describeGoals(
+  goals: Goals, units: Parameters<typeof unitFor>[1],
+): string {
   const parts = (Object.keys(goals) as MetricId[])
     .filter(id => goals[id] !== undefined)
     .map(id => formatWithUnit(id, goals[id] as number, units));

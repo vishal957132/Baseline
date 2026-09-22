@@ -1,28 +1,27 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
 import type { RootStackParams } from '../../app/navigation';
+import { selectGoals } from '../../app/store/goalsSlice';
 import { selectUnits } from '../../app/store/unitsSlice';
 import {
   bucketByDay, listRange, pendingLineageIds,
 } from '../../data/measurementRepo';
-import { getGoals } from '../../data/prefs';
 import { useQuery } from '../../data/useQuery';
 import { summarise } from '../../domain/chart';
 import {
   goalMet, goalProgress, goalRemaining, metric,
 } from '../../domain/metrics';
 import {
-  availableRanges, deviceTzOffsetMs, RANGE_DAYS, RANGE_LABELS, rangeWindow, type RangeId,
+  deviceTzOffsetMs, localDayIndex, RANGE_DAYS, RANGE_LABELS, rangeWindow,
+  type RangeId,
 } from '../../domain/time';
 import { formatDisplay, unitFor } from '../../domain/units';
 import {
-  Button, Card, Chip, color, EmptyState, Icon, ProgressBar, radius, ScreenHeader,
-  Skeleton, space, Text,
+  Button, Card, Chip, EmptyState, Icon, ProgressBar, Screen, ScreenHeader, Skeleton, Text, color, radius, space,
 } from '../../ui';
 import { confirmDeleteMeasurement } from '../components/confirmDelete';
 import { MeasurementRow } from '../components/MeasurementRow';
@@ -40,9 +39,35 @@ export function MetricDetailScreen() {
   const tz = deviceTzOffsetMs();
   const { from, to } = rangeWindow(range, Date.now(), tz);
   // Goals are local settings, written by the onboarding screen.
-  const storedGoal = getGoals()[metricId] ?? null;
+  const storedGoal = useSelector(selectGoals)[metricId] ?? null;
 
   const chart = useQuery(() => bucketByDay(metricId, from, to, tz), [metricId, from, to]);
+
+  /*
+   * Which range to open on.
+   *
+   * It always opened on 7 days, so a reading taken a fortnight ago met "No
+   * weight yet" on the very screen built to show it — the reading existed, the
+   * default window simply did not reach it. This reads the widest window once
+   * and starts on the narrowest range that actually contains something.
+   *
+   * Only ever applied once, so it cannot fight a range the user picks.
+   */
+  const widest = rangeWindow('3mo', Date.now(), tz);
+  const span = useQuery(
+    () => bucketByDay(metricId, widest.from, widest.to, tz),
+    [metricId, widest.from, widest.to],
+  );
+  // Any reading within the widest range, which is what separates "nothing
+  // recorded yet" from "nothing in the window you happen to be looking at".
+  const hasAnyReading = (span.data?.length ?? 0) > 0;
+  const chosen = useRef(false);
+  useEffect(() => {
+    if (chosen.current || !span.data) return;
+    chosen.current = true;
+    const fits = narrowestWithData(span.data.map(b => b.day), tz);
+    if (fits !== null) setRange(fits);
+  }, [span.data, tz]);
   const recent = useQuery(() => listRange(metricId, from, to), [metricId, from, to]);
   const pending = useQuery(() => pendingLineageIds(), []);
 
@@ -99,13 +124,11 @@ export function MetricDetailScreen() {
     ? `From ${basisCount} day${basisCount === 1 ? '' : 's'} with a reading${
         basisCount === 1 ? ' — a single day is its own highest and lowest' : ''}`
     : `From ${basisCount} reading${basisCount === 1 ? '' : 's'} in this range`;
-  // "Ranges unlock as the window fills" — a one-point chart is a lie.
-  const unlocked = availableRanges(series.length);
   const latest = series[series.length - 1]?.value ?? null;
   const goal = storedGoal === null ? null : unit.toDisplay(storedGoal);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <Screen style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <ScreenHeader
           title={d.label}
@@ -119,7 +142,7 @@ export function MetricDetailScreen() {
 
         {chart.loading && !chart.data ? (
           <Card><Skeleton height={140} /></Card>
-        ) : series.length === 0 ? (
+        ) : !hasAnyReading ? (
           <EmptyState
             icon="chart-empty"
             title={`No ${d.label.toLowerCase()} yet`}
@@ -130,7 +153,9 @@ export function MetricDetailScreen() {
         ) : (
           <>
             <View style={styles.headline}>
-              <Text variant="display">{formatDisplay(unit, latest ?? 0)}</Text>
+              <Text variant="display">
+                {latest === null ? '—' : formatDisplay(unit, latest)}
+              </Text>
               <Text variant="body" color="textMuted">{unit.label}</Text>
               {stats && series.length > 1 && (
                 <Text variant="label" color={stats.change < 0 ? 'success' : 'ink'}>
@@ -139,24 +164,42 @@ export function MetricDetailScreen() {
               )}
             </View>
 
+            {/*
+              The chips render whenever the metric has any reading at all, not
+              only when the selected range has one.
+              They used to sit inside the "we have data" branch, so choosing a
+              range that turned out to be empty replaced the whole screen with
+              the empty state — chips included. You could switch from 30 days
+              to 7 and then had no way back: the control that would undo the
+              choice had been removed by the choice.
+            */}
             <View style={styles.ranges}>
-              {(Object.keys(RANGE_DAYS) as RangeId[]).map(r => {
-                const enabled = unlocked.includes(r);
-                return (
-                  <Pressable
-                    key={r}
-                    disabled={!enabled}
-                    onPress={() => setRange(r)}
-                    style={[styles.range, r === range && styles.rangeOn, !enabled && styles.rangeOff]}
-                  >
-                    <Text variant="label" color={r === range ? 'textInverse' : enabled ? 'text' : 'textMuted'}>
-                      {RANGE_LABELS[r]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {(Object.keys(RANGE_DAYS) as RangeId[]).map(r => (
+                <Pressable
+                  key={r}
+                  onPress={() => setRange(r)}
+                  style={[styles.range, r === range && styles.rangeOn]}
+                >
+                  <Text variant="label" color={r === range ? 'textInverse' : 'text'}>
+                    {RANGE_LABELS[r]}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
+            {series.length === 0 ? (
+              <Card>
+                <View style={styles.thin}>
+                  <Text variant="label" align="center">
+                    {`No ${d.label.toLowerCase()} in the last ${RANGE_DAYS[range]} days`}
+                  </Text>
+                  <Text variant="caption" color="textMuted" align="center">
+                    Your readings are older than this. Try a longer range.
+                  </Text>
+                </View>
+              </Card>
+            ) : (
+              <>
             <Card>
               {series.length === 1 ? (
                 <View style={styles.thin}>
@@ -234,11 +277,16 @@ export function MetricDetailScreen() {
                   measurement={m}
                   unit={unit}
                   status={rowStatus(m, pending.data ?? new Set())}
-                  onEdit={d.editable ? () => nav.navigate('LogEntry', { metricId, measurementId: m.id }) : undefined}
-                  onDelete={d.editable ? () => confirmDeleteMeasurement(m, units) : undefined}
+                  onEdit={d.editable
+                    ? r => nav.navigate('LogEntry', { metricId, measurementId: r.id })
+                    : undefined}
+                  onDelete={d.editable ? r => confirmDeleteMeasurement(r, units) : undefined}
                 />
               ))}
             </Card>
+
+              </>
+            )}
 
             {!d.editable && (
               <Text variant="caption" color="textMuted">
@@ -252,8 +300,24 @@ export function MetricDetailScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
+}
+
+/**
+ * The narrowest range holding at least one of these days, or null when none do.
+ *
+ * Days are compared as local day indices — the same unit the buckets are keyed
+ * by — so this never re-does the timezone arithmetic that produced them.
+ */
+function narrowestWithData(days: number[], tzOffsetMs: number): RangeId | null {
+  if (days.length === 0) return null;
+  const newest = Math.max(...days);
+  for (const range of Object.keys(RANGE_DAYS) as RangeId[]) {
+    const { from } = rangeWindow(range, Date.now(), tzOffsetMs);
+    if (newest >= localDayIndex(from, tzOffsetMs)) return range;
+  }
+  return null;
 }
 
 function Stat({ label, value, unit }: { label: string; value: string; unit: string }) {
@@ -280,7 +344,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: color.border,
   },
   rangeOn: { backgroundColor: color.ink, borderColor: color.ink },
-  rangeOff: { opacity: 0.45 },
   thin: { gap: space.xs, paddingVertical: space.xl },
   stats: { flexDirection: 'row', gap: space.sm },
   stat: { flex: 1, gap: space.xs, padding: space.md },

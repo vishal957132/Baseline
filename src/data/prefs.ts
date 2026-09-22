@@ -57,18 +57,37 @@ export type Goals = Partial<Record<MetricId, number>>;
 
 const DEFAULT_GOALS: Goals = { weight: 70, steps: 10_000, water: 2_500 };
 
+/**
+ * The defaults apply to someone who has never set a goal, not to every key for
+ * ever after.
+ *
+ * This used to spread DEFAULT_GOALS under whatever was stored, and the effect
+ * was that a goal could not be cleared: JSON.stringify drops undefined keys, so
+ * emptying the weight field wrote an object without one, and the read put 70
+ * straight back. Nobody met it during onboarding, where goals are only ever
+ * being set for the first time; it appeared the moment the screen became
+ * reachable again from Settings.
+ */
 export function getGoals(): Goals {
   const raw = store.getString(GOALS);
   if (!raw) return DEFAULT_GOALS;
   try {
-    return { ...DEFAULT_GOALS, ...(JSON.parse(raw) as Goals) };
+    return JSON.parse(raw) as Goals;
   } catch {
     return DEFAULT_GOALS;
   }
 }
 
-export function setGoals(goals: Goals): void {
-  store.set(GOALS, JSON.stringify(goals));
+/**
+ * Merged over what is already stored, so a caller may send one goal without
+ * dropping the others — and may clear one by sending it as undefined, which
+ * JSON.stringify then omits.
+ *
+ * The merge belongs here rather than in `getGoals`: on the read side it made
+ * a cleared goal spring back to its default on the next read.
+ */
+export function setGoals(patch: Goals): void {
+  store.set(GOALS, JSON.stringify({ ...getGoals(), ...patch }));
 }
 
 /**

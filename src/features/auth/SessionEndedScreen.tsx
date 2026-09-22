@@ -3,13 +3,14 @@ import {
   KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { selectEmail, signedIn } from '../../app/store/authSlice';
 import { selectSync } from '../../app/store/syncSlice';
 import { resumeSession } from '../../app/syncService';
 import { setSession } from '../../data/prefs';
-import { Banner, Button, Card, color, ListRow, space, Text, TextField } from '../../ui';
+import {
+  Banner, Button, Card, ListRow, Screen, Text, TextField, color, space,
+} from '../../ui';
 import { signIn } from './accounts';
 import { signOut } from './signOut';
 
@@ -49,7 +50,7 @@ export function SessionEndedScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <Screen edges={['top', 'bottom']} style={styles.screen}>
       {/*
         keyboardShouldPersistTaps="handled" is load-bearing, not cosmetic: with
         the default ("never") a tap made while the keyboard is open dismisses
@@ -106,7 +107,7 @@ export function SessionEndedScreen() {
         </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

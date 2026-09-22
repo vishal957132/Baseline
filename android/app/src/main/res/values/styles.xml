@@ -1,8 +1,21 @@
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!--
+      Split into a base style so the API-27-only attribute can live in
+      values-v27 without duplicating everything. minSdkVersion is 24.
+    -->
+    <style name="AppThemeBase" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!--
+          Edge-to-edge draws the system bars transparent over the app, and the
+          system picks its icon colour from the theme rather than from what is
+          behind them. Baseline is a light app on a cream background, so
+          without this the status icons come out white on cream.
+        -->
+        <item name="android:windowLightStatusBar">true</item>
     </style>
+
+    <style name="AppTheme" parent="AppThemeBase" />
 
     <style name="BootTheme" parent="Theme.BootSplash">
         <item name="bootSplashBackground">@color/bootsplash_background</item>
