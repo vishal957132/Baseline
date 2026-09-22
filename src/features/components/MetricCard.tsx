@@ -2,14 +2,21 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import type { Point } from '../../domain/chart';
-import { formatValue, metric } from '../../domain/metrics';
+import { metric } from '../../domain/metrics';
 import type { MetricId, SourceId } from '../../domain/types';
+import { formatIn, type UnitOption } from '../../domain/units';
 import { Card, ProgressBar, space, Text } from '../../ui';
 import { MetricChart } from './MetricChart';
 import { SourceChip } from './SourceChip';
 
 interface Props {
   metricId: MetricId;
+  /**
+   * The unit to show it in. Passed rather than read from the store so the card
+   * stays presentational, and so `React.memo` still has something to compare.
+   */
+  unit: UnitOption;
+  /** Canonical, as stored. Converted here, once, on the way to the screen. */
   value: number | null;
   source: SourceId;
   /** Sparkline data. Water uses a progress bar instead. */
@@ -30,7 +37,7 @@ interface Props {
  * own props, so four of the five can skip the work.
  */
 function MetricCardImpl({
-  metricId, value, source, series, target, note, noteTone = 'textMuted', onPress,
+  metricId, unit, value, source, series, target, note, noteTone = 'textMuted', onPress,
 }: Props) {
   const d = metric(metricId);
 
@@ -42,9 +49,9 @@ function MetricCardImpl({
       </View>
 
       <View style={styles.value}>
-        <Text variant="metric">{value === null ? '—' : formatValue(metricId, value)}</Text>
+        <Text variant="metric">{value === null ? '—' : formatIn(unit, value)}</Text>
         <Text variant="body" color="textMuted">
-          {target != null ? `of ${formatValue(metricId, target)}` : d.unit}
+          {target != null ? `of ${formatIn(unit, target)} ${unit.label}` : unit.label}
         </Text>
       </View>
 

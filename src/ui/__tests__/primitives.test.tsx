@@ -23,13 +23,13 @@ describe('primitives render', () => {
         <ListRow
           title="72.6 kg"
           subtitle="Today 10:03"
-          right={<Chip label="Pending" tone="warn" />}
+          right={<Chip label="Waiting to sync" tone="warn" />}
         />
       </Card>,
     );
     expect(screen.getByText('72.6')).toBeTruthy();
     expect(screen.getByText('Manual')).toBeTruthy();
-    expect(screen.getByText('Pending')).toBeTruthy();
+    expect(screen.getByText('Waiting to sync')).toBeTruthy();
   });
 
   it('renders the interactive ones', async () => {

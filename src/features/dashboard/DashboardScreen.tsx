@@ -6,17 +6,20 @@ import { useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { bucketByDay } from '../../data/measurementRepo';
+import { getGoals } from '../../data/prefs';
 import { useQuery } from '../../data/useQuery';
-import { formatValue, isImprovement, metric } from '../../domain/metrics';
+import { isImprovement, metric } from '../../domain/metrics';
 import { deviceTzOffsetMs, rangeWindow } from '../../domain/time';
 import type { MetricId } from '../../domain/types';
+import { formatIn, unitFor, type UnitOption, type UnitPrefs } from '../../domain/units';
 import type { RootStackParams } from '../../app/navigation';
 import { selectQueuedCount, selectSync } from '../../app/store/syncSlice';
+import { selectUnits } from '../../app/store/unitsSlice';
 import { Banner, Button, Card, ProgressRing, ScreenHeader, Skeleton, space, Text } from '../../ui';
 import { MetricCard } from '../components/MetricCard';
 
-const STEPS_GOAL = 10_000;
-const WATER_GOAL = 2_500;
+/** Only used when the user has cleared a goal; onboarding sets real ones. */
+const FALLBACK_STEPS_GOAL = 10_000;
 
 /** Each card owns its own query, so one slow metric cannot blank the screen. */
 function useMetric(metricId: MetricId) {
@@ -29,6 +32,11 @@ export function DashboardScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const sync = useSelector(selectSync);
   const queued = useSelector(selectQueuedCount);
+  const units = useSelector(selectUnits);
+  // Read once per render rather than held in state: the goals screen writes
+  // them, and coming back here remounts this screen.
+  const goals = getGoals();
+  const stepsGoal = goals.steps ?? FALLBACK_STEPS_GOAL;
 
   // Stable per metric, so the memoised cards are not handed a new function on
   // every render — which would defeat the memo entirely.
@@ -74,7 +82,10 @@ export function DashboardScreen() {
             title={sync.online ? 'Catching up' : 'Offline'}
             subtitle={`${queued} change${queued === 1 ? '' : 's'} waiting to sync`}
             actionLabel="View"
-            onAction={() => nav.navigate('Tabs')}
+            // The Sync tab, not the tab navigator: navigating to 'Tabs' from
+            // inside it resolves to the tabs themselves and moves nowhere, so
+            // the button looked broken.
+            onAction={() => nav.navigate('Tabs', { screen: 'Sync' })}
           />
         )}
 
@@ -94,14 +105,14 @@ export function DashboardScreen() {
         )}
 
         <Card style={styles.ring}>
-          <ProgressRing value={stepsToday ?? 0} max={STEPS_GOAL} />
+          <ProgressRing value={stepsToday ?? 0} max={stepsGoal} />
           <View style={styles.ringBody}>
             <Text variant="caption" color="textMuted">DAILY STEPS GOAL</Text>
             {steps.loading && !steps.data ? (
               <Skeleton height={30} width="60%" />
             ) : (
               <Text variant="metric">
-                {`${stepsToday === null ? '—' : formatValue('steps', stepsToday)} of ${STEPS_GOAL.toLocaleString()}`}
+                {`${stepsToday === null ? '—' : Math.round(stepsToday).toLocaleString()} of ${stepsGoal.toLocaleString()}`}
               </Text>
             )}
             <Text variant="caption" color="textMuted">{stamp(steps.readAt, steps.error)}</Text>
@@ -109,12 +120,13 @@ export function DashboardScreen() {
         </Card>
 
         <View style={styles.grid}>
-          <Summary metricId="weight" q={weight} onPress={open('weight')} />
-          <Summary metricId="sleep" q={sleep} onPress={open('sleep')} />
+          <Summary metricId="weight" q={weight} units={units} onPress={open('weight')} />
+          <Summary metricId="sleep" q={sleep} units={units} onPress={open('sleep')} />
         </View>
         <View style={styles.grid}>
-          <Summary metricId="water" q={water} target={WATER_GOAL} onPress={open('water')} />
-          <Summary metricId="energy" q={energy} onPress={open('energy')} />
+          <Summary metricId="water" q={water} units={units} target={goals.water ?? null}
+            onPress={open('water')} />
+          <Summary metricId="energy" q={energy} units={units} onPress={open('energy')} />
         </View>
 
         <Button label="Log a measurement" icon="plus" onPress={() => nav.navigate('LogEntry', {})} />
@@ -125,13 +137,15 @@ export function DashboardScreen() {
 
 /** Turns one query into one card, including its loading and failed states. */
 function Summary({
-  metricId, q, target, onPress,
+  metricId, q, units, target, onPress,
 }: {
   metricId: MetricId;
   q: ReturnType<typeof useMetric>;
-  target?: number;
+  units: UnitPrefs;
+  target?: number | null;
   onPress: () => void;
 }) {
+  const unit = unitFor(metricId, units);
   if (q.loading && !q.data) {
     return (
       <Card style={styles.cardSlot}>
@@ -151,22 +165,27 @@ function Summary({
   return (
     <MetricCard
       metricId={metricId}
+      unit={unit}
       value={latest}
       source={metricId === 'steps' || metricId === 'energy' ? 'apple_health' : 'manual'}
       series={series}
       target={target}
-      note={q.error ? 'Source did not answer' : trend(metricId, stats, q.readAt)}
+      note={q.error ? 'Source did not answer' : trend(metricId, unit, stats, q.readAt)}
       noteTone={q.error ? 'danger' : isImprovement(metricId, stats) ? 'success' : 'textMuted'}
       onPress={onPress}
     />
   );
 }
 
-function trend(metricId: MetricId, change: number, readAt: number | null): string {
+function trend(
+  metricId: MetricId, unit: UnitOption, change: number, readAt: number | null,
+): string {
   if (readAt === null) return '';
   if (change === 0) return 'no change this week';
   const arrow = change < 0 ? '↓' : '↑';
-  return `${arrow} ${formatValue(metricId, Math.abs(change))} ${metric(metricId).unit} this week`;
+  // The delta is a difference between two stored values, so it converts the
+  // same way a reading does — every unit here is a linear scale through zero.
+  return `${arrow} ${formatIn(unit, Math.abs(change))} ${unit.label} this week`;
 }
 
 /** Design page 11: cached values keep the time they were read. */

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import React from 'react';
 
 import type { Measurement } from '../../domain/types';
+import { unitFor } from '../../domain/units';
 import { ConflictOption } from '../components/ConflictOption';
 import { MeasurementRow } from '../components/MeasurementRow';
 import { MetricCard } from '../components/MetricCard';
@@ -10,6 +11,8 @@ import { SourceChip } from '../components/SourceChip';
 import { SyncQueueItem } from '../components/SyncQueueItem';
 
 const noop = () => {};
+const kg = unitFor('weight');
+const ml = unitFor('water');
 const series = [72.9, 72.7, 72.6].map((value, day) => ({ day, value }));
 
 const measurement: Measurement = {
@@ -37,7 +40,7 @@ describe('SourceChip', () => {
 describe('MetricCard', () => {
   it('shows the value, unit, source and trend', async () => {
     await render(
-      <MetricCard metricId="weight" value={72.6} source="manual" series={series}
+      <MetricCard metricId="weight" unit={kg} value={72.6} source="manual" series={series}
         note="↓ 0.5 kg this week" />,
     );
     expect(screen.getByText('Weight')).toBeTruthy();
@@ -48,15 +51,15 @@ describe('MetricCard', () => {
   });
 
   it('shows a dash rather than a zero when there is no reading', async () => {
-    await render(<MetricCard metricId="weight" value={null} source="manual" />);
+    await render(<MetricCard metricId="weight" unit={kg} value={null} source="manual" />);
     expect(screen.getByText('—')).toBeTruthy();
   });
 
   it('switches to "of target" when the metric has one', async () => {
     await render(
-      <MetricCard metricId="water" value={1800} source="manual" target={2500} />,
+      <MetricCard metricId="water" unit={ml} value={1800} source="manual" target={2500} />,
     );
-    expect(screen.getByText('of 2500')).toBeTruthy();
+    expect(screen.getByText('of 2500 ml')).toBeTruthy();
   });
 });
 
@@ -195,14 +198,14 @@ describe('MetricChart', () => {
 
 describe('MeasurementRow', () => {
   it('marks an un-uploaded reading as pending', async () => {
-    await render(<MeasurementRow measurement={measurement} status="pending" />);
+    await render(<MeasurementRow measurement={measurement} unit={kg} status="pending" />);
     expect(screen.getByText('72.6 kg')).toBeTruthy();
-    expect(screen.getByText('Pending')).toBeTruthy();
+    expect(screen.getByText('Waiting to sync')).toBeTruthy();
   });
 
   it('offers a retry on a failed upload', async () => {
     await render(
-      <MeasurementRow measurement={measurement} status="failed" onRetry={noop} />,
+      <MeasurementRow measurement={measurement} unit={kg} status="failed" onRetry={noop} />,
     );
     expect(screen.getByText('Retry')).toBeTruthy();
     expect(screen.getByText(/upload failed/)).toBeTruthy();
@@ -211,43 +214,79 @@ describe('MeasurementRow', () => {
   /** Read-only metrics get no edit affordance at all. */
   it('hides edit unless an onEdit is given', async () => {
     const withEdit = await render(
-      <MeasurementRow measurement={measurement} status="synced" onEdit={noop} />,
+      <MeasurementRow measurement={measurement} unit={kg} status="synced" onEdit={noop} />,
     );
     const withoutEdit = await render(
-      <MeasurementRow measurement={measurement} status="synced" />,
+      <MeasurementRow measurement={measurement} unit={kg} status="synced" />,
     );
     expect(JSON.stringify(withEdit.toJSON()).length)
       .toBeGreaterThan(JSON.stringify(withoutEdit.toJSON()).length);
   });
+
+  /**
+   * The row converts nothing itself — it shows whatever unit it is handed. The
+   * point of the assertion is that 72.6 kg is 160.1 lb and not 72.6 lb.
+   */
+  it('renders the value in the unit it is given', async () => {
+    await render(
+      <MeasurementRow measurement={measurement} unit={unitFor('weight', { weight: 'lb' })}
+        status="synced" />,
+    );
+    expect(screen.getByText('160.1 lb')).toBeTruthy();
+  });
+
+  it('offers delete only when a handler is given', async () => {
+    const withDelete = await render(
+      <MeasurementRow measurement={measurement} unit={kg} status="synced" onDelete={noop} />,
+    );
+    const withoutDelete = await render(
+      <MeasurementRow measurement={measurement} unit={kg} status="synced" />,
+    );
+    expect(JSON.stringify(withDelete.toJSON()).length)
+      .toBeGreaterThan(JSON.stringify(withoutDelete.toJSON()).length);
+  });
 });
 
 describe('SyncQueueItem', () => {
-  it('shows the op id and local number, so a replay is explicable', async () => {
+  /**
+   * Plain language, and only claims the screen can stand behind.
+   *
+   * It used to print "op -09-21 · local #12". Neither was real: the id was the
+   * tail of the lane key and the sequence was the retry count plus twelve. The
+   * screen is handed a lane's state and no per-operation data, so inventing
+   * identifiers made it look precise while being wrong.
+   */
+  it('says what is waiting and when it will be tried again', async () => {
     await render(
-      <SyncQueueItem index={1} kind="create" label="72.8 kg" opId="4f19a2"
-        localSeq={12} status="retrying" attempts={3} retryInSeconds={8} />,
+      <SyncQueueItem label="Weight · 21 Sep" count={1} status="retrying"
+        attempts={3} retryInSeconds={8} />,
     );
-    expect(screen.getByText('Create · 72.8 kg')).toBeTruthy();
-    expect(screen.getByText(/op 4f19a2 · local #12/)).toBeTruthy();
-    expect(screen.getByText(/attempt 3, next try in 8s/)).toBeTruthy();
-    expect(screen.getByText('Retrying')).toBeTruthy();
+    expect(screen.getByText('Weight · 21 Sep')).toBeTruthy();
+    expect(screen.getByText(/trying again in 8s \(attempt 3\)/)).toBeTruthy();
+    expect(screen.getByText('Trying again')).toBeTruthy();
   });
 
-  it('says what a queued op is waiting on', async () => {
-    await render(
-      <SyncQueueItem index={2} kind="update" label="72.6 kg" opId="7c02d8"
-        localSeq={13} status="queued" heldBehind={1} />,
-    );
-    expect(screen.getByText(/held behind op 1 in this lane/)).toBeTruthy();
+  it('reassures that a waiting change is not lost', async () => {
+    await render(<SyncQueueItem label="Water · 21 Sep" count={1} status="queued" />);
+    expect(screen.getByText(/Safe on this device/)).toBeTruthy();
+    expect(screen.getByText('Waiting')).toBeTruthy();
   });
 
-  it('says so when nothing blocks it', async () => {
-    await render(
-      <SyncQueueItem index={1} kind="delete" label="250 ml" opId="b81e40"
-        localSeq={14} status="sending" />,
+  it('counts the group only when it holds more than one change', async () => {
+    await render(<SyncQueueItem label="Weight · 21 Sep" count={3} status="sending" />);
+    expect(screen.getByText('Weight · 21 Sep · 3 changes')).toBeTruthy();
+    expect(screen.getByText('Uploading now')).toBeTruthy();
+  });
+
+  /** No "op", no "lane", no "local seq" anywhere a user can read. */
+  it('keeps the engine’s vocabulary off the screen', async () => {
+    const { toJSON } = await render(
+      <SyncQueueItem label="Weight · 21 Sep" count={2} status="dead" attempts={6} />,
     );
-    expect(screen.getByText(/ready, waits on nothing/)).toBeTruthy();
-    expect(screen.getByText('Sending')).toBeTruthy();
+    const rendered = JSON.stringify(toJSON());
+    for (const jargon of ['op ', 'lane', 'local #', 'seq']) {
+      expect(rendered.toLowerCase()).not.toContain(jargon);
+    }
   });
 });
 

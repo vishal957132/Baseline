@@ -45,7 +45,7 @@ local.properties
 .kotlin/
 
 # Signing keystores — `*.keystore` above does NOT match a `.jks` extension,
-# so the release keystore (android/app/myworkmyday-release.jks) would otherwise be
+# so a release keystore (android/app/*-release.jks) would otherwise be
 # committable. Never commit a release signing key.
 *.jks
 

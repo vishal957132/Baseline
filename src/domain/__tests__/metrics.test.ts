@@ -2,6 +2,9 @@ import {
   ALL_METRICS,
   EDITABLE_METRICS,
   formatValue,
+  goalMet,
+  goalProgress,
+  goalRemaining,
   isImprovement,
   isMetricId,
   METRICS,
@@ -12,7 +15,7 @@ describe('the registry', () => {
   it('gives every metric a unit and an aggregation', () => {
     for (const d of Object.values(METRICS)) {
       expect(d.unit).toBeTruthy();
-      expect(['sum', 'avg']).toContain(d.aggregate);
+      expect(['sum', 'avg', 'latest']).toContain(d.aggregate);
       expect(['up', 'down']).toContain(d.direction);
     }
   });
@@ -51,8 +54,13 @@ describe('aggregation', () => {
     }
   });
 
-  it('averages weight, which does not accumulate over a day', () => {
-    expect(METRICS.weight.aggregate).toBe('avg');
+  /**
+   * Weight is point-in-time, not cumulative and not a mean. Two weigh-ins in a
+   * day are two readings, and the day's number is the later one — averaging
+   * reports a figure that was never on the scale.
+   */
+  it('takes the latest reading for weight rather than averaging', () => {
+    expect(METRICS.weight.aggregate).toBe('latest');
   });
 });
 
@@ -68,6 +76,71 @@ describe('isImprovement', () => {
 
   it('treats no change as no improvement', () => {
     expect(isImprovement('weight', 0)).toBe(false);
+  });
+});
+
+/**
+ * Named by the brief as a thing worth testing, and it was wrong: progress was
+ * `min(value, goal) / goal`, which reports a 70 kg goal as complete while the
+ * reading is 72.6 — the bar was full the whole way down.
+ */
+describe('goal progress', () => {
+  describe('a metric that should rise', () => {
+    it('is the plain ratio', () => {
+      expect(goalProgress('steps', 7412, 10_000)).toBeCloseTo(0.7412, 4);
+    });
+
+    it('is complete once the goal is reached', () => {
+      expect(goalProgress('steps', 10_000, 10_000)).toBe(1);
+      expect(goalMet('steps', 10_000, 10_000)).toBe(true);
+    });
+
+    it('does not exceed complete when the goal is beaten', () => {
+      expect(goalProgress('steps', 25_000, 10_000)).toBe(1);
+      expect(goalRemaining('steps', 25_000, 10_000)).toBe(0);
+    });
+
+    it('counts what is still to do', () => {
+      expect(goalRemaining('steps', 7412, 10_000)).toBe(2588);
+    });
+  });
+
+  describe('a metric that should fall', () => {
+    it('is not complete while the reading is above the goal', () => {
+      expect(goalProgress('weight', 72.6, 70)).toBeLessThan(1);
+    });
+
+    it('rises as the reading falls', () => {
+      const far = goalProgress('weight', 80, 70);
+      const near = goalProgress('weight', 72.6, 70);
+      expect(near).toBeGreaterThan(far);
+    });
+
+    it('is complete at the goal, and stays complete below it', () => {
+      expect(goalProgress('weight', 70, 70)).toBe(1);
+      expect(goalProgress('weight', 68, 70)).toBe(1);
+      expect(goalMet('weight', 68, 70)).toBe(true);
+    });
+
+    it('counts down, not up', () => {
+      expect(goalRemaining('weight', 72.6, 70)).toBeCloseTo(2.6, 5);
+      expect(goalRemaining('weight', 68, 70)).toBe(0);
+    });
+  });
+
+  it('never divides by a goal of zero', () => {
+    expect(goalProgress('steps', 500, 0)).toBe(0);
+    expect(goalProgress('weight', 70, 0)).toBe(0);
+  });
+
+  it('stays within 0 and 1 for every metric', () => {
+    for (const id of ALL_METRICS) {
+      for (const [value, goal] of [[0, 100], [50, 100], [1e6, 100], [-5, 100]]) {
+        const p = goalProgress(id, value, goal);
+        expect(p).toBeGreaterThanOrEqual(0);
+        expect(p).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });
 

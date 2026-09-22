@@ -81,12 +81,12 @@ export function ConflictScreen({ candidates }: Props) {
             tone="warn"
             icon="info-circle"
             title="Nothing to decide"
-            subtitle="This lane has already been resolved."
+            subtitle="This one has already been sorted out."
           />
         ) : (
           <>
             <Text variant="body" color="textMuted">
-              {`${resolution.candidates.length} things touched your ${metric(metricId).label.toLowerCase()} for this day. An entry and its later correction are the same record, so they count once. Pick what to keep — the rest stay in history.`}
+              {`${resolution.candidates.length} different values were recorded for your ${metric(metricId).label.toLowerCase()} on this day. An entry and a later correction to it count as one. Pick the one to keep — the others stay in your history.`}
             </Text>
 
             <Card style={styles.timeline}>
@@ -122,8 +122,8 @@ export function ConflictScreen({ candidates }: Props) {
             <Banner
               tone="warn"
               icon="info-circle"
-              title="Two imports merge silently, newest first"
-              subtitle="Baseline only asks when something you typed is in contention. Order comes from the server sequence where there is one, never from a phone clock."
+              title="You are only asked when it matters"
+              subtitle="Readings from two health apps are merged automatically, keeping the newest. Baseline asks only when something you typed yourself disagrees with another source."
             />
 
             <Pressable

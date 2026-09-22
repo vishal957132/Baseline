@@ -11,6 +11,13 @@
  *
  * Whether to seed at all is the account's decision: one demo account exists so
  * the empty states can be seen, and seeding it would make them unreachable.
+ *
+ * Deliberately NOT gated on __DEV__. It was, and the effect was that a release
+ * build signed in to an account the sign-in screen advertises as "opens
+ * straight to seeded history" and showed an empty dashboard — with Import then
+ * returning only the three adapter fixtures, which reads as a broken import
+ * rather than an absent seed. These are demo accounts in every build, so their
+ * data has to exist in every build.
  */
 
 import { getDb } from '../data/db';
@@ -19,7 +26,6 @@ import { accountFor } from '../features/auth/accounts';
 import { seedDatabase, seedSyncFixtures } from '../test/seed';
 
 export async function ensureDemoData(email: string | null): Promise<void> {
-  if (!__DEV__) return;
   if (!accountFor(email)?.seedHistory) return;
 
   try {
@@ -29,7 +35,9 @@ export async function ensureDemoData(email: string | null): Promise<void> {
     await seedDatabase(db, now, tz);
     await seedSyncFixtures(db, now, tz);
   } catch (error) {
-    // Fixtures must never stop the app. A warning, not a dead launch.
-    console.warn('Demo data skipped:', error);
+    // Fixtures must never stop the app: an empty dashboard beats a dead
+    // launch. Logged as an error, not a warning — swallowing this quietly is
+    // how an empty dashboard went unexplained in the first place.
+    console.error('Demo data could not be seeded:', error);
   }
 }

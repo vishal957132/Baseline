@@ -15,10 +15,11 @@ import { ErrorBoundary } from './src/app/ErrorBoundary';
 import { Navigation } from './src/app/navigation';
 import { store } from './src/app/store';
 import { sessionRestored } from './src/app/store/authSlice';
+import { unitsRestored } from './src/app/store/unitsSlice';
 import { ensureDemoData } from './src/app/demoData';
 import { startSync, stopSync } from './src/app/syncService';
 import { openDatabase } from './src/data/db';
-import { getSession } from './src/data/prefs';
+import { getSession, getUnitPrefs } from './src/data/prefs';
 import { color, Text } from './src/ui';
 
 function App() {
@@ -33,6 +34,11 @@ function App() {
         // mount and query a database that does not exist yet: every card would
         // report "could not refresh" on a cold start and only recover on retry.
         const session = getSession();
+
+        // A display preference, so it has to be in the store before the first
+        // frame — hydrating it later would paint every reading in kilograms
+        // and then switch to pounds a moment afterwards.
+        store.dispatch(unitsRestored(getUnitPrefs()));
 
         await openDatabase();
         await ensureDemoData(session?.email ?? null);

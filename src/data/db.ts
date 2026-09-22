@@ -35,12 +35,6 @@ export function getDb(): DB {
   return handle;
 }
 
-export async function closeDatabase(): Promise<void> {
-  await handle?.closeAsync();
-  handle = null;
-  localSeq = 0;
-}
-
 /** Monotonic counter shared by measurements, events and outbox ops. */
 export function nextLocalSeq(): number {
   return ++localSeq;

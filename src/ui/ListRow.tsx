@@ -17,10 +17,17 @@ interface Props {
 export function ListRow({ title, subtitle, right, onPress, danger }: Props) {
   const content = (
     <View style={[styles.row, danger && styles.danger]}>
+      {/*
+        One line each. Without this a narrow screen wraps the subtitle rather
+        than truncating it, and rows in a list stop being the same height —
+        which FlashList sizes from.
+      */}
       <View style={styles.body}>
-        <Text variant="label" color={danger ? 'danger' : 'text'}>{title}</Text>
+        <Text variant="label" color={danger ? 'danger' : 'text'} numberOfLines={1}>
+          {title}
+        </Text>
         {subtitle && (
-          <Text variant="caption" color={danger ? 'danger' : 'textMuted'}>
+          <Text variant="caption" color={danger ? 'danger' : 'textMuted'} numberOfLines={1}>
             {subtitle}
           </Text>
         )}
