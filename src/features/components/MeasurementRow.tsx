@@ -16,8 +16,13 @@ interface Props {
   onRetry?: () => void;
 }
 
-/** A history row: value, when and from where, and where the upload got to. */
-export function MeasurementRow({ measurement: m, status, onEdit, onRetry }: Props) {
+/**
+ * A history row: value, when and from where, and where the upload got to.
+ *
+ * Memoised because it renders inside a list — a re-render here is a re-render
+ * per visible row, on every change signal.
+ */
+function MeasurementRowImpl({ measurement: m, status, onEdit, onRetry }: Props) {
   const when = new Date(m.recordedAt);
   const time = `${when.getDate()} ${when.toLocaleString('en', { month: 'short' })} ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
 
@@ -44,6 +49,8 @@ export function MeasurementRow({ measurement: m, status, onEdit, onRetry }: Prop
     </View>
   );
 }
+
+export const MeasurementRow = React.memo(MeasurementRowImpl);
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center' },

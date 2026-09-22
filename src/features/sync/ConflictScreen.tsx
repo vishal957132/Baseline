@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import {
-  laneCandidates, openConflicts, resolveConflict,
+  laneCandidates, laneEvents, openConflicts, resolveConflict,
 } from '../../data/measurementRepo';
 import { useQuery } from '../../data/useQuery';
 import { isMetricId, metric } from '../../domain/metrics';
@@ -47,6 +47,9 @@ export function ConflictScreen({ candidates }: Props) {
 
   const lane = useQuery(() => laneCandidates(laneKey), [laneKey]);
   const open = useQuery(() => openConflicts(), [laneKey]);
+  // The audit log, not the current rows: a create and its later correction are
+  // two things that happened but one candidate to choose between.
+  const events = useQuery(() => laneEvents(laneKey), [laneKey]);
 
   const live = candidates ?? (lane.data ?? []).map(toCandidate);
   const resolution = live.length > 1 ? resolve(live) : null;
@@ -88,13 +91,15 @@ export function ConflictScreen({ candidates }: Props) {
 
             <Card style={styles.timeline}>
               <Text variant="caption" color="textMuted">WHAT HAPPENED</Text>
-              {resolution.candidates.map(c => (
-                <View key={`t-${c.id}`} style={styles.event}>
-                  <View style={[styles.dot, c.source !== 'manual' && styles.dotImport]} />
+              {(events.data ?? []).map(e => (
+                <View key={e.id} style={styles.event}>
+                  <View style={[styles.dot, e.source !== 'manual' && styles.dotImport]} />
                   <View style={styles.eventBody}>
-                    <Text variant="label">{`${c.value} — ${describe(c)}`}</Text>
+                    <Text variant="label">
+                      {`${clockOf(e.createdAt)} — ${happened(e)}`}
+                    </Text>
                     <Text variant="caption" color="textMuted">
-                      {c.serverSeq === null ? 'on this phone' : 'already on the server'}
+                      {e.source === 'manual' ? 'Manual entry on this phone' : 'Imported from your source'}
                     </Text>
                   </View>
                 </View>
@@ -141,6 +146,20 @@ export function ConflictScreen({ candidates }: Props) {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+/** The log in words: what the entry was, in the order it happened. */
+function happened(e: { kind: string; value: number | null; source: string }): string {
+  const value = e.value === null ? '' : ` ${e.value}`;
+  if (e.kind === 'import') return `your source reported${value}`;
+  if (e.kind === 'update') return `you corrected it to${value}`;
+  if (e.kind === 'delete') return 'it was removed';
+  return `you recorded${value}`;
+}
+
+function clockOf(at: number): string {
+  const d = new Date(at);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 function describe(c: Candidate): string {

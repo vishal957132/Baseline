@@ -38,7 +38,10 @@ local.properties
 *.hprof
 .cxx/
 *.keystore
-debug.keystore
+# React Native's template commits this one, and so do we: without it a fresh
+# clone cannot build, failing at validateSigningDebug. It protects no identity
+# — the password is literally "android" and it signs only debug builds.
+!android/app/debug.keystore
 .kotlin/
 
 # Signing keystores — `*.keystore` above does NOT match a `.jks` extension,
