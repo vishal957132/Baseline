@@ -22,8 +22,14 @@ interface Props {
   onPress?: () => void;
 }
 
-/** A dashboard tile. Loading and empty are the caller's job, not this one's. */
-export function MetricCard({
+/**
+ * A dashboard tile. Loading and empty are the caller's job, not this one's.
+ *
+ * Memoised: the dashboard holds five independent queries in one component, so
+ * any one of them resolving re-renders the lot. Each card only depends on its
+ * own props, so four of the five can skip the work.
+ */
+function MetricCardImpl({
   metricId, value, source, series, target, note, noteTone = 'textMuted', onPress,
 }: Props) {
   const d = metric(metricId);
@@ -57,6 +63,8 @@ export function MetricCard({
     </Card>
   );
 }
+
+export const MetricCard = React.memo(MetricCardImpl);
 
 const styles = StyleSheet.create({
   card: { flex: 1, gap: space.sm, padding: space.md },

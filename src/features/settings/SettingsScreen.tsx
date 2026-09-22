@@ -7,6 +7,8 @@ import { selectEmail, selectName } from '../../app/store/authSlice';
 import { selectCanSignOut, selectQueuedCount } from '../../app/store/syncSlice';
 import { importHealthData, type ImportSummary } from '../../app/importService';
 import { simulateSignInElsewhere } from '../../app/syncService';
+import { storageStats } from '../../data/measurementRepo';
+import { useQuery } from '../../data/useQuery';
 import { signOut } from '../auth/signOut';
 import { getConnectedSources, setConnectedSources } from '../../data/prefs';
 import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
@@ -15,9 +17,8 @@ import {
 } from '../../ui';
 
 interface Props {
-  /** Real counts, read once at mount by the app shell. */
-  recordCount?: number;
-  storageBytes?: number;
+  /** Test seam. Left alone, the screen measures the database itself. */
+  stats?: { records: number; since: number | null; bytes: number };
 }
 
 /**
@@ -25,7 +26,9 @@ interface Props {
  * worse than none. What it does show is real — the record count, the storage
  * size, and the guard that stops you signing out over unsent changes.
  */
-export function SettingsScreen({ recordCount, storageBytes }: Props) {
+export function SettingsScreen({ stats }: Props) {
+  const measured = useQuery(() => storageStats(), []);
+  const storage = stats ?? measured.data;
   const dispatch = useDispatch();
   const email = useSelector(selectEmail);
   const name = useSelector(selectName);
@@ -124,11 +127,11 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
         <Text variant="caption" color="textMuted">ON THIS DEVICE</Text>
         <Card style={styles.list}>
           <ListRow
-            title={`${(recordCount ?? 0).toLocaleString()} records`}
+            title={storage ? `${storage.records.toLocaleString()} records` : 'Counting…'}
             subtitle={
-              storageBytes
-                ? `${(storageBytes / 1_048_576).toFixed(1)} MB on disk`
-                : 'reading…'
+              storage
+                ? `${describeSince(storage.since)} · ${(storage.bytes / 1_048_576).toFixed(1)} MB on disk`
+                : 'reading the database'
             }
           />
           <ListRow title="Units" subtitle="Metric (kg, km)" />
@@ -168,6 +171,12 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function describeSince(since: number | null): string {
+  if (since === null) return 'No readings yet';
+  const at = new Date(since);
+  return `Since ${at.toLocaleString('en', { month: 'short' })} ${at.getFullYear()}`;
 }
 
 const styles = StyleSheet.create({

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ScrollView, StyleSheet, View, type LayoutChangeEvent,
 } from 'react-native';
@@ -70,8 +70,30 @@ export function MetricChart({
   const plotWidth = showY ? outer - Y_AXIS_WIDTH : outer;
   const plotHeight = showX ? height - X_AXIS_HEIGHT : height;
 
-  // Width zero is the first frame, before layout has run. Projecting then
-  // would collapse every point onto x=0, so hold the space and wait.
+  // Draw at whichever is wider: the plot area, or the room the points need.
+  // A sparkline never scrolls — it is a glance, not something to explore.
+  const drawWidth = bare ? plotWidth : Math.max(plotWidth, series.length * minPointSpacing);
+  const scrolls = drawWidth > plotWidth;
+
+  // Downsampling a thousand points and building two path strings is the one
+  // genuinely costly thing this component does, and the dashboard re-renders
+  // whenever any of its five queries resolves. Recompute only when the shape
+  // of the chart actually changes.
+  //
+  // Computed before the early return below, because a hook may not be skipped.
+  // `project` answers an empty series with empty geometry, so this is safe
+  // even on the first frame when nothing has been measured yet.
+  const geo = useMemo(
+    () => project(series, {
+      width: Math.max(1, drawWidth),
+      height: Math.max(1, plotHeight),
+      goal: bare ? null : goal,
+    }),
+    [series, drawWidth, plotHeight, goal, bare],
+  );
+
+  // Width zero is the first frame, before layout has run. Drawing then would
+  // collapse every point onto x=0, so hold the space and wait.
   if (series.length === 0 || plotWidth <= 0) {
     return (
       <View testID="metric-chart" style={[styles.fill, { height }]}
@@ -79,16 +101,6 @@ export function MetricChart({
     );
   }
 
-  // Draw at whichever is wider: the plot area, or the room the points need.
-  // A sparkline never scrolls — it is a glance, not something to explore.
-  const drawWidth = bare ? plotWidth : Math.max(plotWidth, series.length * minPointSpacing);
-  const scrolls = drawWidth > plotWidth;
-
-  const geo = project(series, {
-    width: drawWidth,
-    height: plotHeight,
-    goal: bare ? null : goal,
-  });
   const last = geo.points[geo.points.length - 1];
   const ticks = showX ? pickTicks(geo.points.length, xTicks) : [];
 
