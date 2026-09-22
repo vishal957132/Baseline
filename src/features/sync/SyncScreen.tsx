@@ -7,7 +7,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import { selectSync } from '../../app/store/syncSlice';
-import { Banner, Button, Card, color, EmptyState, ScreenHeader, space, Text } from '../../ui';
+import { openConflicts } from '../../data/measurementRepo';
+import { useQuery } from '../../data/useQuery';
+import { retryLane, syncNow } from '../../app/syncService';
+import { MAX_ATTEMPTS } from '../../sync/engine';
+import {
+  Banner, Button, Card, color, EmptyState, ListRow, ScreenHeader, space, Text,
+} from '../../ui';
 import { SyncQueueItem } from '../components/SyncQueueItem';
 
 /**
@@ -22,10 +28,23 @@ interface Props {
   onRetryLane?: (laneKey: string) => void;
 }
 
-export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
+export function SyncScreen({
+  // Defaulted rather than injected by the navigator: the app gets the real
+  // service, and tests still pass their own.
+  onRetryAll = syncNow,
+  onRetryLane = retryLane,
+}: Props = {}) {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const sync = useSelector(selectSync);
   const queued = sync.lanes.reduce((n, l) => n + l.queued, 0);
+  const dead = sync.lanes.filter(l => l.status === 'dead');
+
+  // Straight from the table, not from the store. The engine only knows about
+  // conflicts the *server* reported; the ones detected locally — a typed
+  // reading disagreeing with an imported one — are rows, and were invisible
+  // here while this read the engine's in-memory list instead.
+  const conflicts = useQuery(() => openConflicts(), []);
+  const needsDecision = conflicts.data ?? [];
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -42,6 +61,42 @@ export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
               : 'Nothing has synced yet'
           }
         />
+
+        {dead.length > 0 && (
+          <>
+            <Banner
+              tone="danger"
+              icon="alert-triangle"
+              title={`${dead.map(l => laneLabel(l.laneKey)).join(', ')} stopped after ${MAX_ATTEMPTS} attempts`}
+              subtitle={`Nothing was lost — ${dead.reduce((n, l) => n + l.queued, 0)} change${dead.reduce((n, l) => n + l.queued, 0) === 1 ? '' : 's'} are still on this device and go out when you retry.`}
+              actionLabel="Retry all"
+              onAction={onRetryAll}
+            />
+
+            {/* One bad lane fails alone; everything else finished. */}
+            <Text variant="caption" color="textMuted">LANES</Text>
+            <Card style={styles.laneCard}>
+              {sync.lanes.map(lane => (
+                <ListRow
+                  key={`summary-${lane.laneKey}`}
+                  title={laneLabel(lane.laneKey)}
+                  subtitle={`${lane.queued} queued`}
+                  danger={lane.status === 'dead'}
+                  right={
+                    <Text
+                      variant="caption"
+                      color={lane.status === 'dead' ? 'danger' : 'textMuted'}
+                    >
+                      {lane.status === 'dead'
+                        ? `${lane.queued} held · failed`
+                        : LANE_WORDS[lane.status]}
+                    </Text>
+                  }
+                />
+              ))}
+            </Card>
+          </>
+        )}
 
         {queued === 0 ? (
           <EmptyState
@@ -76,7 +131,12 @@ export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
                     label={laneLabel(lane.laneKey)}
                     opId={lane.laneKey.slice(-6)}
                     localSeq={lane.attempts + 12}
-                    status={lane.status === 'dead' ? 'dead' : lane.status === 'retrying' ? 'retrying' : 'sending'}
+                    status={
+                      lane.status === 'dead' ? 'dead'
+                      : lane.status === 'retrying' ? 'retrying'
+                      : lane.status === 'sending' ? 'sending'
+                      : 'queued'
+                    }
                     attempts={lane.attempts}
                     retryInSeconds={secondsUntil(lane.nextAttemptAt)}
                   />
@@ -93,7 +153,7 @@ export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
                   )}
                 </Card>
 
-                {lane.status === 'dead' && onRetryLane && (
+                {lane.status === 'dead' && (
                   <Button label="Retry this lane" variant="danger"
                     onPress={() => onRetryLane(lane.laneKey)} />
                 )}
@@ -107,10 +167,10 @@ export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
           </>
         )}
 
-        {sync.conflicts.length > 0 && (
+        {needsDecision.length > 0 && (
           <>
             <Text variant="caption" color="danger">NEEDS YOUR ATTENTION</Text>
-            {sync.conflicts.map(c => (
+            {needsDecision.map(c => (
               <Banner
                 key={c.laneKey}
                 tone="danger"
@@ -124,16 +184,15 @@ export function SyncScreen({ onRetryAll, onRetryLane }: Props = {}) {
           </>
         )}
 
-        {onRetryAll && queued > 0 && (
-          <Button label="Try all lanes now" onPress={onRetryAll} />
-        )}
+        {queued > 0 && <Button label="Try all lanes now" onPress={onRetryAll} />}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const LANE_WORDS = {
-  sending: 'Sending', retrying: 'Retrying', dead: 'Failed', conflict: 'Needs you',
+  queued: 'Queued', sending: 'Sending', retrying: 'Retrying',
+  dead: 'Failed', conflict: 'Needs you',
 };
 
 /** `weight:2026-09-21` → `Weight · 21 Sep`. */

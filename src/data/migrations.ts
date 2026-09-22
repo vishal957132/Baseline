@@ -81,4 +81,12 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_outbox_lineage ON outbox (lineage_id)`,
     ],
   },
+  {
+    version: 2,
+    statements: [
+      // Which candidate the user kept. Resolving a conflict had nowhere to
+      // record the decision, so it failed on a column that was never created.
+      `ALTER TABLE conflicts ADD COLUMN chosen_id TEXT`,
+    ],
+  },
 ];

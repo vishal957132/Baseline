@@ -34,6 +34,25 @@ export function providersForPlatform(os = Platform.OS): HealthProvider[] {
   );
 }
 
+/**
+ * On by default. The legacy feed is off, matching design page 13 — it is the
+ * odd one out, and a source whose field names lie should be opt-in.
+ */
+export const DEFAULT_CONNECTED: SourceId[] = ['apple_health', 'health_connect'];
+
+/**
+ * This device's providers with the user's on/off choice applied.
+ *
+ * The choice is passed in rather than read here, so the registry stays a pure
+ * lookup and nothing above it has to mock storage to test importing.
+ */
+export function connectedProviders(
+  connected: SourceId[],
+  os = Platform.OS,
+): HealthProvider[] {
+  return providersForPlatform(os).filter(p => connected.includes(p.id));
+}
+
 export interface ImportResult {
   providerId: SourceId;
   readings: Reading[];

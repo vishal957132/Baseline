@@ -80,6 +80,37 @@ describe('tier one: nothing typed is in contention', () => {
   });
 });
 
+/**
+ * "In contention" means disagreeing with a different source. Several readings
+ * the user typed are several readings — weighing twice in a day is normal, and
+ * four glasses of water certainly are.
+ */
+describe('several readings from the same source', () => {
+  it('does not ask about two things the user typed', () => {
+    const result = resolve([
+      make({ id: 'a', value: 66.1, source: 'manual', serverSeq: 900 }),
+      make({ id: 'b', value: 95, source: 'manual', localSeq: 20 }),
+    ]);
+    expect(result.outcome).toBe('auto');
+  });
+
+  it('nor about four glasses of water', () => {
+    const glasses = [1, 2, 3, 4].map(n =>
+      make({ id: `w${n}`, value: 250, source: 'manual', localSeq: n }),
+    );
+    expect(resolve(glasses).outcome).toBe('auto');
+  });
+
+  it('but does ask once a different source disagrees', () => {
+    const result = resolve([
+      make({ id: 'typed', value: 95, source: 'manual', localSeq: 20 }),
+      make({ id: 'scale', value: 66.1, source: 'withings', serverSeq: 900 }),
+    ]);
+    expect(result.outcome).toBe('ask');
+    expect(result.winner.value).toBe(95);
+  });
+});
+
 describe('the standing preference', () => {
   const contested: Candidate[] = [
     make({ id: 'mine', value: 72.6, source: 'manual', localSeq: 20 }),

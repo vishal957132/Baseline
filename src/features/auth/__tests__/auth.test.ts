@@ -1,8 +1,12 @@
 import authReducer, {
   onboardingFinished, sessionRestored, signedIn, signedOut,
 } from '../../../app/store/authSlice';
-import { clearSession, getGoals, getSession, setGoals, setSession } from '../../../data/prefs';
-import { ACCOUNTS, signIn } from '../accounts';
+import {
+  clearPrefs, clearSession, getConnectedSources, getGoals, getSession,
+  markOnboarded, setConnectedSources, setGoals, setSession,
+} from '../../../data/prefs';
+import { DEFAULT_CONNECTED } from '../../../providers/registry';
+import { ACCOUNTS, accountFor, signIn } from '../accounts';
 
 describe('credentials', () => {
   it('accepts every demo account with its documented password', () => {
@@ -30,6 +34,31 @@ describe('credentials', () => {
   it('marks exactly one account as needing onboarding', () => {
     expect(ACCOUNTS.filter(a => !a.onboarded).map(a => a.email))
       .toEqual(['demo@baseline.app']);
+  });
+
+  /**
+   * The empty account exists so the empty states can be reached. Seeding it
+   * would make them unreachable — which is exactly what happened when the
+   * seeder ran for every sign-in regardless of who.
+   */
+  it('leaves exactly one account unseeded, for the empty states', () => {
+    expect(ACCOUNTS.filter(a => !a.seedHistory).map(a => a.email))
+      .toEqual(['empty@baseline.app']);
+  });
+
+  it('seeds the two accounts that are meant to have history', () => {
+    expect(ACCOUNTS.filter(a => a.seedHistory).map(a => a.email))
+      .toEqual(['vishal@baseline.app', 'demo@baseline.app']);
+  });
+
+  it('looks an account up by email, ignoring case and spacing', () => {
+    expect(accountFor('  VISHAL@Baseline.app ')?.name).toBe('Vishal Rabadiya');
+  });
+
+  it('has no account for an unknown email, or for none at all', () => {
+    expect(accountFor('nobody@example.com')).toBeUndefined();
+    expect(accountFor(null)).toBeUndefined();
+    expect(accountFor(undefined)).toBeUndefined();
   });
 
   it('gives every account a display name for the Settings screen', () => {
@@ -67,6 +96,52 @@ describe('cached session', () => {
   });
 });
 
+/**
+ * The restart bug: finishing onboarding used to update only Redux, so the next
+ * launch read a cached session that still said `onboarded: false` and sent the
+ * user back through Connect and Goals every time.
+ */
+describe('onboarding survives a restart', () => {
+  beforeEach(clearPrefs);
+
+  it('writes the flag onto the cached session', () => {
+    setSession({
+      email: 'demo@baseline.app', name: 'Demo User',
+      onboarded: false, signedInAt: 1,
+    });
+
+    markOnboarded();
+
+    expect(getSession()?.onboarded).toBe(true);
+  });
+
+  it('leaves the rest of the session alone', () => {
+    setSession({
+      email: 'demo@baseline.app', name: 'Demo User',
+      onboarded: false, signedInAt: 99,
+    });
+
+    markOnboarded();
+
+    expect(getSession()).toEqual({
+      email: 'demo@baseline.app', name: 'Demo User',
+      onboarded: true, signedInAt: 99,
+    });
+  });
+
+  it('does nothing when nobody is signed in', () => {
+    markOnboarded();
+    expect(getSession()).toBeNull();
+  });
+
+  it('is idempotent', () => {
+    setSession({ email: 'a@b.c', name: 'A B', onboarded: false, signedInAt: 1 });
+    markOnboarded();
+    markOnboarded();
+    expect(getSession()?.onboarded).toBe(true);
+  });
+});
+
 describe('goals are settings, not measurements', () => {
   it('has sensible defaults before onboarding', () => {
     expect(getGoals()).toMatchObject({ weight: 70, steps: 10_000, water: 2_500 });
@@ -77,6 +152,30 @@ describe('goals are settings, not measurements', () => {
     const goals = getGoals();
     expect(goals.steps).toBe(15_000);
     expect(goals.weight).toBe(70); // untouched
+  });
+});
+
+describe('the connected sources', () => {
+  beforeEach(clearPrefs);
+
+  it('falls back to the caller\u2019s defaults before anything is chosen', () => {
+    expect(getConnectedSources(DEFAULT_CONNECTED)).toEqual(DEFAULT_CONNECTED);
+  });
+
+  it('remembers a choice across launches', () => {
+    setConnectedSources(['json_feed']);
+    expect(getConnectedSources(DEFAULT_CONNECTED)).toEqual(['json_feed']);
+  });
+
+  it('remembers switching everything off, rather than reverting to defaults', () => {
+    setConnectedSources([]);
+    expect(getConnectedSources(DEFAULT_CONNECTED)).toEqual([]);
+  });
+
+  it('goes with the session on sign-out', () => {
+    setConnectedSources(['json_feed']);
+    clearPrefs();
+    expect(getConnectedSources(DEFAULT_CONNECTED)).toEqual(DEFAULT_CONNECTED);
   });
 });
 

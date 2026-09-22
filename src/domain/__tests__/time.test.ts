@@ -2,6 +2,8 @@ import {
   availableRanges,
   deviceTzOffsetMs,
   formatDayShort,
+  fromLocalDateTime,
+  toLocalDateTime,
   laneKey,
   localDayIndex,
   localDayKey,
@@ -116,8 +118,15 @@ describe('rangeWindow', () => {
 describe('availableRanges', () => {
   // Design page 15: "Ranges unlock as the window fills" — one reading is
   // progress, but it is not a trend, so no range is offered.
-  it('offers nothing with a single reading', () => {
-    expect(availableRanges(1)).toEqual([]);
+  /** Page 15 keeps "7 days" active and greys the rest — disabling every range
+   *  would leave the selected one unselectable. */
+  it('keeps the shortest range selectable with a single reading', () => {
+    expect(availableRanges(1)).toEqual(['7d']);
+  });
+
+  it('locks the longer ranges until there is a trend to see', () => {
+    expect(availableRanges(1)).not.toContain('30d');
+    expect(availableRanges(1)).not.toContain('3mo');
   });
 
   it('offers 7d once two days have readings', () => {
@@ -138,6 +147,55 @@ describe('formatDayShort', () => {
   it('handles the turn of a month', () => {
     const day = Math.floor(Date.UTC(2026, 0, 1) / MS_PER_DAY);
     expect(formatDayShort(day)).toBe('1 Jan');
+  });
+});
+
+describe('the log sheet\u2019s date and time', () => {
+  it('shows an instant as the local wall clock', () => {
+    // 03:13 UTC is 08:43 in IST.
+    expect(toLocalDateTime(utc('2026-09-22T03:13:00'), IST)).toEqual({
+      date: '2026-09-22',
+      time: '08:43',
+    });
+  });
+
+  it('reads that wall clock back to the same instant', () => {
+    const at = utc('2026-09-22T03:13:00');
+    const { date, time } = toLocalDateTime(at, IST);
+    expect(fromLocalDateTime(date, time, IST)).toBe(at);
+  });
+
+  it('round-trips in a negative offset too', () => {
+    const at = utc('2026-09-22T03:00:00');
+    const { date, time } = toLocalDateTime(at, EST);
+    expect(fromLocalDateTime(date, time, EST)).toBe(at);
+  });
+
+  it('puts a late-evening entry on the day the user sees', () => {
+    // 23:50 on the 21st, in IST.
+    const at = fromLocalDateTime('2026-09-21', '23:50', IST)!;
+    expect(localDayKey(at, IST)).toBe('2026-09-21');
+  });
+
+  it.each([
+    ['nonsense', 'yesterday', '10:00'],
+    ['a slashed date', '2026/09/22', '10:00'],
+    ['a short year', '26-09-22', '10:00'],
+    ['a missing minute', '2026-09-22', '10'],
+    ['hour 24', '2026-09-22', '24:00'],
+    ['minute 60', '2026-09-22', '10:60'],
+    ['empty', '', ''],
+  ])('rejects %s', (_label, date, time) => {
+    expect(fromLocalDateTime(date, time, IST)).toBeNull();
+  });
+
+  /** Date.UTC rolls 31 February over to 3 March rather than failing. */
+  it('rejects a day that does not exist', () => {
+    expect(fromLocalDateTime('2026-02-31', '10:00', IST)).toBeNull();
+  });
+
+  it('accepts a real leap day', () => {
+    expect(fromLocalDateTime('2024-02-29', '10:00', IST)).not.toBeNull();
   });
 });
 

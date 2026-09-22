@@ -10,6 +10,45 @@
 
 export const MS_PER_DAY = 86_400_000;
 
+/** `2026-09-22` and `08:43`, as the log sheet shows them. */
+export interface LocalDateTime {
+  date: string;
+  time: string;
+}
+
+/** Split an instant into the local date and time a person would read off it. */
+export function toLocalDateTime(at: number, tzOffsetMs: number): LocalDateTime {
+  const local = new Date(at + tzOffsetMs).toISOString();
+  return { date: local.slice(0, 10), time: local.slice(11, 16) };
+}
+
+/**
+ * The reverse. Returns null when the text is not a real moment.
+ *
+ * The round-trip check is what rejects 31 February: `Date.UTC` rolls it over
+ * to 3 March rather than failing, so the only way to know the input was wrong
+ * is to format the result back and compare.
+ */
+export function fromLocalDateTime(
+  date: string,
+  time: string,
+  tzOffsetMs: number,
+): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!/^\d{2}:\d{2}$/.test(time)) return null;
+
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  if (hour > 23 || minute > 59) return null;
+
+  const wall = Date.UTC(year, month - 1, day, hour, minute);
+  if (Number.isNaN(wall)) return null;
+  if (new Date(wall).toISOString().slice(0, 10) !== date) return null;
+
+  // The wall clock is local, so the offset comes back off to reach UTC.
+  return wall - tzOffsetMs;
+}
+
 export type RangeId = '7d' | '30d' | '3mo';
 
 export const RANGE_DAYS: Record<RangeId, number> = {
@@ -74,7 +113,16 @@ export function rangeWindow(range: RangeId, now: number, tzOffsetMs: number) {
   };
 }
 
-/** Design page 15: a one-point chart is a lie, so ranges need two days. */
+/**
+ * Which ranges are worth offering.
+ *
+ * The shortest is always selectable — it is the default frame and the screen
+ * has to show something. The longer ones need two days with a reading, because
+ * one point cannot describe a trend: design page 15 keeps "7 days" active and
+ * greys out the rest. Disabling all three, including the selected one, would
+ * leave the user unable to choose anything.
+ */
 export function availableRanges(daysWithData: number): RangeId[] {
-  return daysWithData < 2 ? [] : (Object.keys(RANGE_DAYS) as RangeId[]);
+  const all = Object.keys(RANGE_DAYS) as RangeId[];
+  return daysWithData < 2 ? [all[0]] : all;
 }

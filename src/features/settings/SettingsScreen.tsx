@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { selectEmail, selectName } from '../../app/store/authSlice';
 import { selectCanSignOut, selectQueuedCount } from '../../app/store/syncSlice';
 import { signOut } from '../auth/signOut';
-import { providersForPlatform } from '../../providers/registry';
+import { getConnectedSources, setConnectedSources } from '../../data/prefs';
+import { DEFAULT_CONNECTED, providersForPlatform } from '../../providers/registry';
 import {
   Banner, Button, Card, Chip, color, ListRow, ScreenHeader, space, Text,
 } from '../../ui';
@@ -29,6 +30,17 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
   const queued = useSelector(selectQueuedCount);
   const canSignOut = useSelector(selectCanSignOut);
   const [signingOut, setSigningOut] = useState(false);
+  const [connected, setConnected] = useState(() =>
+    getConnectedSources(DEFAULT_CONNECTED),
+  );
+
+  function toggleSource(id: (typeof connected)[number]) {
+    const next = connected.includes(id)
+      ? connected.filter(x => x !== id)
+      : [...connected, id];
+    setConnected(next);
+    setConnectedSources(next);
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -49,7 +61,13 @@ export function SettingsScreen({ recordCount, storageBytes }: Props) {
               key={p.id}
               title={`${p.label} · ${p.platform}`}
               subtitle={p.sampleShape}
-              right={<Chip label="On" tone="provider" />}
+              onPress={() => toggleSource(p.id)}
+              right={
+                <Chip
+                  label={connected.includes(p.id) ? 'On' : 'Off'}
+                  tone={connected.includes(p.id) ? 'provider' : 'neutral'}
+                />
+              }
             />
           ))}
         </Card>

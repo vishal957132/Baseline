@@ -24,7 +24,11 @@ export function backoffMs(attempts: number): number {
 
 export interface LaneState {
   laneKey: string;
-  status: 'sending' | 'retrying' | 'dead' | 'conflict';
+  /**
+   * `queued` is waiting its turn, `sending` has a request out. They were one
+   * word before, which made a queued lane read as though it were mid-upload.
+   */
+  status: 'queued' | 'sending' | 'retrying' | 'dead' | 'conflict';
   queued: number;
   attempts: number;
   nextAttemptAt: number | null;
@@ -54,6 +58,13 @@ export interface EngineDeps {
   netInfo: { isOnline(): boolean };
   /** Where state goes. The UI reads the store, never this class. */
   onChange?: (state: SyncState) => void;
+  /**
+   * Called once the server has accepted an op, with the sequence it assigned.
+   *
+   * The engine reports it rather than writing it: its business is the queue,
+   * and the measurements table belongs to the data layer.
+   */
+  onSynced?: (op: Op, serverSeq: number) => Promise<void> | void;
 }
 
 export class SyncEngine {
@@ -64,6 +75,19 @@ export class SyncEngine {
   private running = false;
 
   constructor(private deps: EngineDeps) {}
+
+  /**
+   * Reset ops stranded mid-flight by a kill, and report how many.
+   *
+   * Call once, before the first run: a `sending` op blocks its lane as the
+   * head while never being sendable, so a lane left that way would stall for
+   * good. Replaying is safe — the op id is the idempotency key.
+   */
+  async recover(): Promise<number> {
+    const stranded = await this.deps.outbox.recoverInFlight();
+    if (stranded > 0) await this.publish();
+    return stranded;
+  }
 
   /**
    * Drain until nothing is sendable.
@@ -149,7 +173,9 @@ export class SyncEngine {
       }
 
       // `duplicate: true` means the server had already applied it — a replay
-      // after a lost acknowledgement. Success, not an error.
+      // after a lost acknowledgement. Success, not an error, and it carries the
+      // same sequence the first attempt was given.
+      await this.deps.onSynced?.(op, result.serverSeq);
       await outbox.complete(op.id);
       return true;
     } catch (error) {
@@ -216,5 +242,6 @@ function laneStatus(status: Op['status']): LaneState['status'] {
   if (status === 'dead') return 'dead';
   if (status === 'conflict') return 'conflict';
   if (status === 'failed') return 'retrying';
-  return 'sending';
+  if (status === 'sending') return 'sending';
+  return 'queued';
 }
