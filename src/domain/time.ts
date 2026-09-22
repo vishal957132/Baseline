@@ -113,16 +113,3 @@ export function rangeWindow(range: RangeId, now: number, tzOffsetMs: number) {
   };
 }
 
-/**
- * Which ranges are worth offering.
- *
- * The shortest is always selectable — it is the default frame and the screen
- * has to show something. The longer ones need two days with a reading, because
- * one point cannot describe a trend: design page 15 keeps "7 days" active and
- * greys out the rest. Disabling all three, including the selected one, would
- * leave the user unable to choose anything.
- */
-export function availableRanges(daysWithData: number): RangeId[] {
-  const all = Object.keys(RANGE_DAYS) as RangeId[];
-  return daysWithData < 2 ? [all[0]] : all;
-}

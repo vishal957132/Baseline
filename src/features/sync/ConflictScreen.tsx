@@ -1,7 +1,6 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParams } from '../../app/navigation';
 import {
@@ -12,7 +11,7 @@ import { isMetricId, metric } from '../../domain/metrics';
 import type { Measurement, MetricId } from '../../domain/types';
 import { resolve, type Candidate } from '../../sync/conflict';
 import {
-  Banner, Button, Card, color, radius, ScreenHeader, space, Text,
+  Banner, Button, Card, Screen, ScreenHeader, Text, color, radius, space,
 } from '../../ui';
 import { ConflictOption } from '../components/ConflictOption';
 
@@ -72,7 +71,7 @@ export function ConflictScreen({ candidates }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <Screen style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <ScreenHeader title="Which one is right?" onBack={nav.goBack} />
 
@@ -144,7 +143,7 @@ export function ConflictScreen({ candidates }: Props) {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

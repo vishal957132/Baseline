@@ -24,12 +24,32 @@ interface Props {
   /** What to show the value in. The row stores nothing and converts nothing. */
   unit: UnitOption;
   status: RowStatus;
-  /** Shown only for editable metrics — steps and energy are read-only. */
-  onEdit?: () => void;
+  /**
+   * Shown only for editable metrics — steps and energy are read-only.
+   *
+   * Handed the measurement back rather than closing over it, so the list can
+   * pass one stable function for every row. A per-row arrow made these props
+   * new on each render and defeated the memo below — which is affordable on a
+   * short list and is not on eighteen thousand rows being flung past.
+   */
+  onEdit?: (measurement: Measurement) => void;
   /** Same rule as onEdit. Confirmation is the caller's job, not the row's. */
-  onDelete?: () => void;
-  onRetry?: () => void;
+  onDelete?: (measurement: Measurement) => void;
+  onRetry?: (measurement: Measurement) => void;
 }
+
+/*
+ * Built once, not per row.
+ *
+ * Each of these is a react-native-svg tree, and three of them render in every
+ * row; FlashList recycles cells constantly while scrolling, so rebuilding them
+ * per cell was a measurable share of the work that left cells blank on a fast
+ * fling. Their colours are constants, so one element each can be shared —
+ * React elements are immutable.
+ */
+const SYNCED_TICK = <Icon name="check" size={18} color={color.success} />;
+const EDIT_GLYPH = <Icon name="pencil" size={18} color={color.textMuted} />;
+const DELETE_GLYPH = <Icon name="trash" size={18} color={color.danger} />;
 
 /**
  * A history row: value, when and from where, and where the upload got to.
@@ -60,37 +80,37 @@ function MeasurementRowImpl({
           right={
             status === 'pending' ? <Chip label="Waiting to sync" tone="warn" />
             : status === 'failed' ? (
-              <Pressable onPress={onRetry} style={styles.retry} hitSlop={6}>
+              <Pressable onPress={() => onRetry?.(m)} style={styles.retry} hitSlop={6}>
                 <Text variant="label" color="danger">Retry</Text>
               </Pressable>
             ) : status === 'stored' ? (
               // Where it came from, which is the useful fact about a reading
               // this app was never going to upload.
               <SourceChip source={m.source} />
-            ) : <Icon name="check" size={18} color={color.success} />
+            ) : SYNCED_TICK
           }
         />
       </View>
       {onEdit && (
         <Pressable
-          onPress={onEdit}
+          onPress={() => onEdit(m)}
           style={styles.action}
           hitSlop={6}
           accessibilityRole="button"
           accessibilityLabel={`Edit ${formatIn(unit, m.value)} ${unit.label}`}
         >
-          <Icon name="pencil" size={18} color={color.textMuted} />
+          {EDIT_GLYPH}
         </Pressable>
       )}
       {onDelete && (
         <Pressable
-          onPress={onDelete}
+          onPress={() => onDelete(m)}
           style={[styles.action, styles.delete]}
           hitSlop={6}
           accessibilityRole="button"
           accessibilityLabel={`Delete ${formatIn(unit, m.value)} ${unit.label}`}
         >
-          <Icon name="trash" size={18} color={color.danger} />
+          {DELETE_GLYPH}
         </Pressable>
       )}
     </View>
