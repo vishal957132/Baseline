@@ -3,12 +3,11 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View,
 } from 'react-native';
 import { useDispatch } from 'react-redux';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ensureDemoData } from '../../app/demoData';
 import { signedIn } from '../../app/store/authSlice';
 import { setSession } from '../../data/prefs';
-import { Banner, Button, Card, color, space, Text, TextField } from '../../ui';
+import { Banner, Button, Card, Screen, Text, TextField, color, space } from '../../ui';
 import { ACCOUNTS, signIn } from './accounts';
 
 /**
@@ -43,7 +42,7 @@ export function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <Screen edges={['top', 'bottom']} style={styles.screen}>
       {/*
         keyboardShouldPersistTaps="handled" is load-bearing, not cosmetic: with
         the default ("never") a tap made while the keyboard is open dismisses
@@ -105,7 +104,7 @@ export function SignInScreen() {
         ))}
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

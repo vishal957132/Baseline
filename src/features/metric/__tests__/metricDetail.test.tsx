@@ -13,13 +13,15 @@
  * are on pounds, where a double conversion has somewhere to show.
  */
 
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import goalsReducer from '../../../app/store/goalsSlice';
 import unitsReducer from '../../../app/store/unitsSlice';
+import { deviceTzOffsetMs, localDayIndex } from '../../../domain/time';
 import type { Measurement } from '../../../domain/types';
 import type { UnitPrefs } from '../../../domain/units';
 import { MetricDetailScreen } from '../MetricDetailScreen';
@@ -31,9 +33,7 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
 }));
 
-jest.mock('../../../data/prefs', () => ({
-  getGoals: jest.fn(() => ({ weight: 70 })),
-}));
+
 
 /** All three readings fall on one day, which is what collapses the bucket. */
 const AT = Date.UTC(2026, 8, 22, 9, 0);
@@ -63,8 +63,8 @@ async function mount(units: UnitPrefs = {}) {
     <SafeAreaProvider initialMetrics={{ frame: FRAME, insets: INSETS }}>
       <Provider
         store={configureStore({
-          reducer: { units: unitsReducer },
-          preloadedState: { units },
+          reducer: { goals: goalsReducer, units: unitsReducer },
+          preloadedState: { goals: { weight: 70 }, units },
         })}
       >
         <MetricDetailScreen />
@@ -174,5 +174,96 @@ describe('in pounds', () => {
     // 70 kg = 154.3 lb; 218.3 - 154.3 = 63.9 lb still to go.
     expect(await screen.findByText('Goal · 154.3 lb')).toBeTruthy();
     expect(screen.getByText('63.9 lb to go')).toBeTruthy();
+  });
+});
+
+/**
+ * Opening on a range that has something in it.
+ *
+ * The screen always opened on 7 days, so a reading taken a fortnight ago met
+ * "No weight yet" on the one screen built to show it. The reading existed; the
+ * default window did not reach it.
+ */
+describe('choosing the opening range', () => {
+  const day = (back: number) =>
+    localDayIndex(Date.now(), deviceTzOffsetMs()) - back;
+
+  /*
+   * Asserted on the goal caption, which names the selected range's span. The
+   * repository is mocked and answers any window with the same rows, so
+   * "a number rendered" would pass whatever range the screen picked.
+   */
+  it('stays on 7 days when the last week has readings', async () => {
+    repo().bucketByDay.mockResolvedValue([{ day: day(2), value: 80, count: 1 }]);
+    await mount();
+    expect(await screen.findByText(/of 7 days have a reading/)).toBeTruthy();
+  });
+
+  it('widens to 30 days when the reading is older than a week', async () => {
+    repo().bucketByDay.mockResolvedValue([{ day: day(8), value: 80, count: 1 }]);
+    await mount();
+    expect(await screen.findByText(/of 30 days have a reading/)).toBeTruthy();
+  });
+
+  it('widens to 3 months when it is older than a month', async () => {
+    repo().bucketByDay.mockResolvedValue([{ day: day(45), value: 80, count: 1 }]);
+    await mount();
+    expect(await screen.findByText(/of 90 days have a reading/)).toBeTruthy();
+  });
+
+  it('shows the empty state when there is genuinely nothing', async () => {
+    repo().bucketByDay.mockResolvedValue([]);
+    repo().listRange.mockResolvedValue([]);
+    await mount();
+    expect(await screen.findByText('No weight yet')).toBeTruthy();
+  });
+});
+
+/**
+ * The chips have to survive an empty range.
+ *
+ * They used to render inside the "we have data" branch, so picking a range
+ * that turned out to be empty replaced the whole screen with the empty state —
+ * chips included. Switching from 30 days to 7 left no way back: the control
+ * that would undo the choice was removed by the choice.
+ */
+describe('a range with nothing in it', () => {
+  const day = (back: number) =>
+    localDayIndex(Date.now(), deviceTzOffsetMs()) - back;
+
+  /** Reading exists, but not inside the 7-day window the user just picked. */
+  const olderThanAWeek = () => {
+    repo().bucketByDay.mockImplementation((_m: string, from: number) => {
+      const weekish = Date.now() - 8 * 86_400_000;
+      return Promise.resolve(
+        from <= weekish ? [{ day: day(8), value: 80, count: 1 }] : [],
+      );
+    });
+    repo().listRange.mockResolvedValue([]);
+  };
+
+  it('keeps every range selectable so the choice can be undone', async () => {
+    olderThanAWeek();
+    await mount();
+    await screen.findByText('30 days');
+
+    await fireEvent.press(screen.getByText('7 days'));
+
+    // All three still on screen, including the one that would widen again.
+    expect(screen.getByText('7 days')).toBeTruthy();
+    expect(screen.getByText('30 days')).toBeTruthy();
+    expect(screen.getByText('3 months')).toBeTruthy();
+  });
+
+  it('says the readings are older rather than that there are none', async () => {
+    olderThanAWeek();
+    await mount();
+    await screen.findByText('30 days');
+    await fireEvent.press(screen.getByText('7 days'));
+
+    expect(screen.getByText('No weight in the last 7 days')).toBeTruthy();
+    // Not the first-run empty state — this metric does have readings.
+    expect(screen.queryByText('No weight yet')).toBeNull();
+    expect(screen.queryByText('Add your first entry')).toBeNull();
   });
 });

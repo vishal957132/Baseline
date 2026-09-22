@@ -15,11 +15,12 @@ import { ErrorBoundary } from './src/app/ErrorBoundary';
 import { Navigation } from './src/app/navigation';
 import { store } from './src/app/store';
 import { sessionRestored } from './src/app/store/authSlice';
+import { goalsRestored } from './src/app/store/goalsSlice';
 import { unitsRestored } from './src/app/store/unitsSlice';
 import { ensureDemoData } from './src/app/demoData';
 import { startSync, stopSync } from './src/app/syncService';
 import { openDatabase } from './src/data/db';
-import { getSession, getUnitPrefs } from './src/data/prefs';
+import { getGoals, getSession, getUnitPrefs } from './src/data/prefs';
 import { color, Text } from './src/ui';
 
 function App() {
@@ -39,6 +40,7 @@ function App() {
         // frame — hydrating it later would paint every reading in kilograms
         // and then switch to pounds a moment afterwards.
         store.dispatch(unitsRestored(getUnitPrefs()));
+        store.dispatch(goalsRestored(getGoals()));
 
         await openDatabase();
         await ensureDemoData(session?.email ?? null);

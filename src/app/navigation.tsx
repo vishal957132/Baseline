@@ -8,6 +8,7 @@ import { PlatformPressable } from '@react-navigation/elements';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text as RNText, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
 import type { MetricId } from '../domain/types';
@@ -38,6 +39,16 @@ export type RootStackParams = {
   SignIn: undefined;
   Connect: undefined;
   Goals: undefined;
+  /**
+   * The same screen as onboarding step 2, reached from Settings.
+   *
+   * A distinct name, not a param on `Goals`. Conditional stacks keep the
+   * current route when its name still exists in the branch being switched to —
+   * so registering `Goals` in both branches meant finishing onboarding left the
+   * user on the goals screen instead of moving to the tabs, and "Start
+   * tracking" looked like a dead button.
+   */
+  EditGoals: undefined;
   SessionEnded: undefined;
   Tabs: NavigatorScreenParams<TabParams> | undefined;
   MetricDetail: { metricId: MetricId };
@@ -156,17 +167,41 @@ const TAB_LABEL = {
   settings: label('Settings'),
 };
 
+/**
+ * The bar's own content height. The system inset is added on top of it, so
+ * this is the space the icon and label get, not the total.
+ *
+ * It was 78 when a fixed height overrode the inset and this *was* the total.
+ * Once the navigation area was reserved separately, the same number made the
+ * bar half again as tall as it needed to be.
+ */
+const TAB_BAR_HEIGHT = 62;
+
 const Tab = createBottomTabNavigator<TabParams>();
 const Stack = createNativeStackNavigator<RootStackParams>();
 
 function Tabs() {
+  /*
+   * The bar has to make room for the system navigation bar itself.
+   *
+   * A fixed `height` in tabBarStyle overrides the inset-aware height React
+   * Navigation would otherwise compute, so the bar drew straight through the
+   * navigation area: under gesture navigation the inset is small enough to
+   * scrape by, but three-button navigation needs ~48dp and the back, home and
+   * recents glyphs landed on top of the tab labels.
+   */
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: color.ink,
         tabBarInactiveTintColor: color.textMuted,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          { height: TAB_BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom },
+        ],
         tabBarButton: tabButton,
         // Slides the screens past each other instead of swapping them in one
         // frame — the tab bar animates, so the content should too.
@@ -212,6 +247,7 @@ export function Navigation() {
           <>
             <Stack.Screen name="Tabs" component={Tabs} />
             <Stack.Screen name="MetricDetail" component={MetricDetailScreen} />
+            <Stack.Screen name="EditGoals" component={GoalsScreen} />
             {/*
               The log form is a bottom sheet: transparent, so the dashboard
               stays visible behind it, and sliding up from the bottom so it
@@ -239,7 +275,6 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: color.card,
     borderTopColor: color.border,
-    height: 78,
     // React Navigation gives the bar elevation 8 by default, which on Android
     // lifts it above a transparent modal presented over the tabs. The top
     // border already separates it from the content, so the shadow costs
@@ -251,7 +286,7 @@ const styles = StyleSheet.create({
   // glance, and it still reads for anyone who cannot separate the two colours.
   tabLabelOn: { fontWeight: '800' },
   tabIcon: {
-    width: 56, alignItems: 'center', justifyContent: 'center', paddingTop: 12,
+    width: 56, alignItems: 'center', justifyContent: 'center', paddingTop: 8,
   },
   indicator: {
     position: 'absolute', top: 0,
