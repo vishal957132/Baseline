@@ -16,10 +16,12 @@ import type {
   DayBucket,
   EventKind,
   Measurement,
+  MeasurementEvent,
   MetricId,
   SourceId,
 } from '../domain/types';
 import { bucketSql } from './bucketSql';
+import { IMPORT_UPSERT_SQL } from './importSql';
 import { resolve, type Candidate } from '../sync/conflict';
 import { notifyDataChanged } from './changes';
 import { getDb, nextLocalSeq } from './db';
@@ -153,15 +155,7 @@ export async function importMeasurements(
       const id = `${r.source}:${r.externalId}`;
 
       await exec(tx, {
-        sql: `INSERT INTO measurements
-                (id, lineage_id, lane_key, metric, value, unit, recorded_at,
-                 updated_at, source, external_id, server_seq, local_seq, deleted_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
-              ON CONFLICT (source, external_id) DO UPDATE SET
-                value = excluded.value,
-                recorded_at = excluded.recorded_at,
-                lane_key = excluded.lane_key,
-                updated_at = excluded.updated_at`,
+        sql: IMPORT_UPSERT_SQL,
         params: [
           id, id, lane, r.metric, r.value, descriptor(r.metric).unit,
           r.recordedAt, ctx.now, r.source, r.externalId, seq,
@@ -192,6 +186,64 @@ export async function measurementById(id: string): Promise<Measurement | null> {
     [id],
   );
   return rows.length > 0 ? toMeasurement(rows[0] as Row) : null;
+}
+
+export interface StorageStats {
+  records: number;
+  /** Earliest reading, or null when there are none. */
+  since: number | null;
+  bytes: number;
+}
+
+/**
+ * What this device is actually holding.
+ *
+ * Real numbers rather than the design's illustrative ones — the Settings
+ * screen claims "18,420 records · 4.2 MB", and a claim about storage should
+ * be measured, not written.
+ */
+export async function storageStats(): Promise<StorageStats> {
+  const db = getDb();
+  const counted = await db.execute(
+    `SELECT COUNT(*) AS n, MIN(recorded_at) AS since FROM measurements
+     WHERE deleted_at IS NULL`,
+  );
+  const size = await db.execute(
+    'SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()',
+  );
+  return {
+    records: Number(counted.rows[0]?.n ?? 0),
+    since: counted.rows[0]?.since == null ? null : Number(counted.rows[0].since),
+    bytes: Number(size.rows[0]?.bytes ?? 0),
+  };
+}
+
+/**
+ * What actually happened in a lane, oldest first.
+ *
+ * This is the append-only log, not the current rows — which is the whole
+ * reason it exists. A create followed by a correction is two entries here and
+ * one candidate on the conflict screen, and only this can tell the user the
+ * difference.
+ */
+export async function laneEvents(lane: string): Promise<MeasurementEvent[]> {
+  const { rows } = await getDb().execute(
+    `SELECT id, measurement_id, lineage_id, lane_key, kind, value, created_at,
+            source, local_seq
+     FROM measurement_events WHERE lane_key = ? ORDER BY local_seq`,
+    [lane],
+  );
+  return (rows as Row[]).map(r => ({
+    id: String(r.id),
+    measurementId: String(r.measurement_id),
+    lineageId: String(r.lineage_id),
+    laneKey: String(r.lane_key),
+    kind: String(r.kind) as MeasurementEvent['kind'],
+    value: r.value == null ? null : Number(r.value),
+    createdAt: Number(r.created_at),
+    source: String(r.source) as SourceId,
+    localSeq: Number(r.local_seq),
+  }));
 }
 
 /** Live readings in a lane — what a conflict is decided between. */

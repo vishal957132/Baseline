@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useCallback } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,6 +29,13 @@ export function DashboardScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const sync = useSelector(selectSync);
   const queued = useSelector(selectQueuedCount);
+
+  // Stable per metric, so the memoised cards are not handed a new function on
+  // every render — which would defeat the memo entirely.
+  const open = useCallback(
+    (metricId: MetricId) => () => nav.navigate('MetricDetail', { metricId }),
+    [nav],
+  );
 
   const steps = useMetric('steps');
   const weight = useMetric('weight');
@@ -102,12 +109,12 @@ export function DashboardScreen() {
         </Card>
 
         <View style={styles.grid}>
-          <Summary metricId="weight" q={weight} onPress={() => nav.navigate('MetricDetail', { metricId: 'weight' })} />
-          <Summary metricId="sleep" q={sleep} onPress={() => nav.navigate('MetricDetail', { metricId: 'sleep' })} />
+          <Summary metricId="weight" q={weight} onPress={open('weight')} />
+          <Summary metricId="sleep" q={sleep} onPress={open('sleep')} />
         </View>
         <View style={styles.grid}>
-          <Summary metricId="water" q={water} target={WATER_GOAL} onPress={() => nav.navigate('MetricDetail', { metricId: 'water' })} />
-          <Summary metricId="energy" q={energy} onPress={() => nav.navigate('MetricDetail', { metricId: 'energy' })} />
+          <Summary metricId="water" q={water} target={WATER_GOAL} onPress={open('water')} />
+          <Summary metricId="energy" q={energy} onPress={open('energy')} />
         </View>
 
         <Button label="Log a measurement" icon="plus" onPress={() => nav.navigate('LogEntry', {})} />

@@ -38,6 +38,19 @@ export interface Measurement {
   deletedAt: number | null;
 }
 
+/** One line of the audit log. Feeds the conflict screen's timeline. */
+export interface MeasurementEvent {
+  id: string;
+  measurementId: string;
+  lineageId: string;
+  laneKey: string;
+  kind: EventKind;
+  value: number | null;
+  createdAt: number;
+  source: SourceId;
+  localSeq: number;
+}
+
 export interface Conflict {
   id: string;
   laneKey: string;
