@@ -89,6 +89,25 @@ The domain layer imports nothing from the others. That is what lets its rules be
 tested without a device — the database and storage libraries are native code and
 cannot run under Jest.
 
+### How data moves
+
+```mermaid
+flowchart LR
+    YOU["You type<br/>a reading"] --> DB
+    APPS["Health apps<br/>three different shapes"] --> ADAPT["Adapters<br/>turn them into one shape"]
+    ADAPT --> DB
+    DB[("Phone database<br/>the source of truth")] --> SCREENS["Dashboard<br/>History · Charts"]
+    DB --> QUEUE["Upload queue<br/>grouped by metric and day"]
+    QUEUE -->|when online| SERVER["Server"]
+    SERVER -->|confirms| DB
+    DB -.->|two values for one day| ASK["Ask which to keep"]
+    ASK -.-> DB
+```
+
+Everything goes into the phone's database first, and every screen reads from
+there. The queue and the server sit to one side: if they are slow, or absent,
+the app carries on. Nothing on screen waits for the network.
+
 **Saving a reading writes three things**: the reading, a record of what happened,
 and an instruction to upload it. All three save together or none do. If the
 reading saved and the upload instruction did not, it would never sync and nothing
