@@ -86,11 +86,18 @@ android {
         versionName "1.0"
     }
     signingConfigs {
-        release {
-            storeFile file(MYAPP_RELEASE_STORE_FILE)
-            storePassword MYAPP_RELEASE_STORE_PASSWORD
-            keyAlias MYAPP_RELEASE_KEY_ALIAS
-            keyPassword MYAPP_RELEASE_KEY_PASSWORD
+        // Only declared when the credentials are present, which they are not in
+        // a fresh clone: they live in ~/.gradle/gradle.properties, outside the
+        // repository. `storeFile file(...)` is evaluated while Gradle
+        // configures the project, so referencing a missing property here would
+        // fail every task, debug builds included.
+        if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
+            release {
+                storeFile file(MYAPP_RELEASE_STORE_FILE)
+                storePassword MYAPP_RELEASE_STORE_PASSWORD
+                keyAlias MYAPP_RELEASE_KEY_ALIAS
+                keyPassword MYAPP_RELEASE_KEY_PASSWORD
+            }
         }
         debug {
             storeFile file('debug.keystore')
@@ -106,8 +113,11 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            // signingConfig signingConfigs.debug
-            signingConfig signingConfigs.release
+            // Falls back to debug signing when the release credentials are
+            // absent, so the project builds for anyone who clones it.
+            signingConfig project.hasProperty('MYAPP_RELEASE_STORE_FILE')
+                ? signingConfigs.release
+                : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
