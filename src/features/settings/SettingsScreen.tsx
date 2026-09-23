@@ -183,8 +183,8 @@ export function SettingsScreen({ stats }: Props) {
         )}
 
         <Text variant="caption" color="textMuted">
-          Demo build. Every adapter returns seeded fixtures — swap one line in
-          providers/registry.ts to read the real HealthKit or Health Connect store.
+          Demo build. Every source returns sample data. Going live changes one
+          adapter file per source, and nothing above it.
         </Text>
 
         <Text variant="caption" color="textMuted">READ THESE METRICS</Text>
